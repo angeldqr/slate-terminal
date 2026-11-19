@@ -1,4 +1,4 @@
-import { use, useEffect } from 'react'
+import { use, useEffect, useLayoutEffect } from 'react'
 import { FolderSimplePlusIcon, TerminalWindowIcon } from '@phosphor-icons/react'
 import { cn } from './lib/utils'
 import { TitleBar } from './components/TitleBar'
@@ -11,6 +11,7 @@ import { initMotion, reducedMotion } from './motion'
 import { openNewSessionMenu } from './overlays'
 import { installShortcuts, shortcutKeys } from './shortcuts'
 import { addFolder, init, newSession, useStore } from './store'
+import { applyTheme, watchSystemTheme } from './theme'
 
 // Si algo falla al cargar, Slate abre igual con la barra lateral vacía en vez de en blanco.
 const loading = init().catch((err) => console.error('Slate no pudo cargar sus datos:', err))
@@ -75,6 +76,13 @@ function App(): React.JSX.Element {
   use(loading)
   const hasSessions = useStore((s) => s.sessions.length > 0)
   const sidebar = useStore((s) => s.sidebar)
+  const pinnedBar = useStore((s) => s.prefs.pinTopBar)
+
+  // Main ya pintó con el tema guardado; aquí se confirma con las preferencias y se sigue al sistema.
+  useLayoutEffect(() => {
+    applyTheme()
+    return watchSystemTheme()
+  }, [])
 
   // Tras el primer render: los botones de origen de Blendy ya existen.
   useEffect(() => {
@@ -85,8 +93,13 @@ function App(): React.JSX.Element {
   return (
     <div className="relative h-full">
       <TitleBar />
-      {/* 8 px de marco arriba: la franja de la barra superior escondida. */}
-      <div className="flex h-full pt-2">
+      {/* Arriba, 8 px de marco para la franja de la barra escondida, o la barra entera si está fija. */}
+      <div
+        className={cn(
+          'flex h-full transition-[padding] duration-200 ease-out-quint',
+          pinnedBar ? 'pt-9' : 'pt-2'
+        )}
+      >
         <Sidebar />
         <main
           className={cn(

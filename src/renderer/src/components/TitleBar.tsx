@@ -91,7 +91,8 @@ export function TitleBar(): React.JSX.Element {
   const pinned = useStore((s) => !!s.hint || !!s.overlay)
   // Con una capa abierta no arrastra: si no, su franja se tragaría los clics al fondo de la capa.
   const overlay = useStore((s) => !!s.overlay)
-  const open = near || pinned || keyboardFocus
+  const pinTopBar = useStore((s) => s.prefs.pinTopBar)
+  const open = near || pinned || keyboardFocus || pinTopBar
 
   return (
     <header

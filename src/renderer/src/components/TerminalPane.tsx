@@ -1,15 +1,18 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { CaretDownIcon, CaretUpIcon, XIcon } from '@phosphor-icons/react'
-import { Terminal } from '@xterm/xterm'
+import { Terminal, type ITerminalOptions } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { terminals } from '@renderer/terminals'
+import { fontStack, type Prefs } from '@renderer/prefs'
+import { getState, useStore } from '@renderer/store'
+import { useDark } from '@renderer/theme'
 
 // Colores ANSI en la paleta pizarra y tiza: apagados, sin saturar.
-const theme = {
+const darkTheme = {
   background: '#0c0d0e',
   foreground: '#edeeef',
   cursor: '#edeeef',
@@ -37,6 +40,50 @@ const theme = {
   brightWhite: '#edeeef'
 }
 
+// La misma paleta sobre tiza: los colores bajan de brillo para leerse sobre fondo claro.
+const lightTheme = {
+  background: '#fafafa',
+  foreground: '#121314',
+  cursor: '#121314',
+  cursorAccent: '#fafafa',
+  selectionBackground: '#d4d7db',
+  overviewRulerBorder: '#fafafa',
+  scrollbarSliderBackground: '#dcdee0',
+  scrollbarSliderHoverBackground: '#c4c7cb',
+  scrollbarSliderActiveBackground: '#9a9fa5',
+  black: '#24272a',
+  red: '#c4382f',
+  green: '#3f7d3a',
+  yellow: '#9a6a00',
+  blue: '#3b6db3',
+  magenta: '#8250b8',
+  cyan: '#2a7f86',
+  white: '#6b7076',
+  brightBlack: '#5c6168',
+  brightRed: '#d4453b',
+  brightGreen: '#4c9245',
+  brightYellow: '#b7791f',
+  brightBlue: '#4a7fc8',
+  brightMagenta: '#9562cc',
+  brightCyan: '#35949b',
+  brightWhite: '#121314'
+}
+
+// Lo que el usuario puede cambiar en Ajustes, ya en el formato de xterm.
+type TermPrefs = Pick<
+  Prefs,
+  'fontFamily' | 'fontSize' | 'lineHeight' | 'cursorStyle' | 'cursorBlink' | 'scrollback'
+>
+const termOptions = (p: TermPrefs, dark: boolean): ITerminalOptions => ({
+  theme: dark ? darkTheme : lightTheme,
+  fontFamily: fontStack(p.fontFamily),
+  fontSize: p.fontSize,
+  lineHeight: p.lineHeight,
+  cursorStyle: p.cursorStyle,
+  cursorBlink: p.cursorBlink,
+  scrollback: p.scrollback
+})
+
 export function TerminalPane({
   sessionId,
   focused
@@ -49,16 +96,23 @@ export function TerminalPane({
   const search = useRef<SearchAddon | null>(null)
   // Cada petición de búsqueda suma uno: la barra se abre o, si ya está abierta, recupera el foco.
   const [findRequest, setFindRequest] = useState(0)
+  // Solo lo que usa el terminal: cambiar "Avisar" o la bandeja no lo toca.
+  const prefs = useStore(({ prefs: p }) => ({
+    fontFamily: p.fontFamily,
+    fontSize: p.fontSize,
+    lineHeight: p.lineHeight,
+    cursorStyle: p.cursorStyle,
+    cursorBlink: p.cursorBlink,
+    scrollback: p.scrollback
+  }))
+  const dark = useDark()
+  const options = useMemo(() => termOptions(prefs, dark), [prefs, dark])
+  const initial = useRef(options)
+  const refit = useRef(() => {})
 
   useEffect(() => {
     const term = new Terminal({
-      theme,
-      fontFamily: "'JetBrains Mono', 'Cascadia Mono', Consolas, monospace",
-      fontSize: 13,
-      lineHeight: 1.25,
-      cursorBlink: true,
-      cursorStyle: 'bar',
-      scrollback: 5000,
+      ...initial.current,
       overviewRuler: { width: 6 }, // también fija el ancho de la barra de scroll (14px por defecto)
       allowProposedApi: true
     })
@@ -89,6 +143,7 @@ export function TerminalPane({
       clearTimeout(settle)
       settle = setTimeout(() => sessions.resize(sessionId, term.cols, term.rows), 80)
     }
+    refit.current = resize
 
     // Primero lo que ya imprimió y después lo nuevo: IPC entrega en orden, así no se duplica nada.
     let alive = true
@@ -102,6 +157,10 @@ export function TerminalPane({
     })
 
     const input = term.onData((data) => sessions.write(sessionId, data))
+    const selection = term.onSelectionChange(() => {
+      const text = term.getSelection()
+      if (text && getState().prefs.copyOnSelect) navigator.clipboard.writeText(text).catch(() => {})
+    })
     // Lo que los atajos pueden hacer con este terminal cuando tiene el foco.
     terminals.set(sessionId, {
       copy: () => {
@@ -127,10 +186,19 @@ export function TerminalPane({
       observer.disconnect()
       offData()
       input.dispose()
+      selection.dispose()
       term.dispose()
       termRef.current = null
     }
   }, [sessionId])
+
+  // Ajustes cambia el terminal en vivo; antes de pintar, para que el cambio de tema salga entero.
+  useLayoutEffect(() => {
+    const term = termRef.current
+    if (!term) return
+    Object.assign(term.options, options)
+    refit.current() // otra fuente o tamaño cambia cuántas columnas caben
+  }, [options])
 
   useEffect(() => {
     if (focused) requestAnimationFrame(() => termRef.current?.focus())

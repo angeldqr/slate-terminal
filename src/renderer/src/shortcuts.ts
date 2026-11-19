@@ -4,6 +4,7 @@ import {
   ClipboardTextIcon,
   SquareSplitHorizontalIcon,
   CopySimpleIcon,
+  GearSixIcon,
   SidebarSimpleIcon,
   PlusIcon,
   SquareSplitVerticalIcon,
@@ -25,13 +26,14 @@ import {
   toggleSidebar
 } from './store'
 import { terminals } from './terminals'
-import { openNewSessionMenu, openPalette } from './overlays'
+import { openNewSessionMenu, openPalette, openSettings } from './overlays'
 
 export const isMac = navigator.userAgent.includes('Mac')
 
 // En Windows y Linux todas las acciones van con Ctrl+Shift: Ctrl más una letra es del terminal
 // (Ctrl+W borra una palabra, Ctrl+K la línea; Claude Code usa Ctrl+B y Ctrl+T…). Slate solo toma
-// Ctrl+Tab y Ctrl+1…9, que las shells no usan. En Mac van con Cmd, que el terminal no usa.
+// Ctrl+Tab, Ctrl+1…9 y Ctrl+, (ajustes), que las shells no usan. En Mac van con Cmd, que el
+// terminal no usa.
 export type Shortcut = {
   id: string
   label: string
@@ -133,6 +135,14 @@ export const SHORTCUTS: Shortcut[] = [
     mac: 'Cmd+B',
     icon: SidebarSimpleIcon,
     run: toggleSidebar
+  },
+  {
+    id: 'settings',
+    label: 'Ajustes',
+    win: 'Ctrl+,',
+    mac: 'Cmd+,',
+    icon: GearSixIcon,
+    run: openSettings
   },
   {
     id: 'copy',

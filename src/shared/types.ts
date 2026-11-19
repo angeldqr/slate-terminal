@@ -15,3 +15,6 @@ export type SessionInfo = {
 }
 
 export type Agent = { id: AgentId; name: string; cmd: string; hooks?: boolean; installed?: boolean }
+
+// Aviso del sistema; `id` es la sesión a la que lleva al pulsarlo ('' si no lleva a ninguna).
+export type Notice = { id: string; title: string; body: string; silent: boolean }

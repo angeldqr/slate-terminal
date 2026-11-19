@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { CaretRightIcon, PlusIcon, TerminalWindowIcon } from '@phosphor-icons/react'
+import { CaretRightIcon, GearSixIcon, PlusIcon, TerminalWindowIcon } from '@phosphor-icons/react'
 import { cn } from '@renderer/lib/utils'
 import {
   closeSession,
@@ -27,7 +27,8 @@ import {
   ContextMenuTrigger
 } from '@renderer/components/ui/context-menu'
 import { SessionIcon } from '@renderer/components/SessionIcon'
-import { openNewSessionMenu } from '@renderer/overlays'
+import { openNewSessionMenu, openSettings } from '@renderer/overlays'
+import { shortcutKeys } from '@renderer/shortcuts'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -317,6 +318,18 @@ function SidebarContent({ morphSource }: { morphSource: boolean }): React.JSX.El
             <PlusIcon size={15} /> Nueva sesión
           </span>
         </button>
+        {/* Blendy transforma el engranaje en Ajustes. */}
+        <button
+          data-blendy-from={morphSource ? 'settings' : undefined}
+          onClick={openSettings}
+          aria-label="Ajustes"
+          title={`Ajustes (${shortcutKeys('settings')})`}
+          className="ml-auto grid size-7 place-items-center rounded-sm text-muted-foreground transition-colors duration-120 hover:bg-accent/40 hover:text-foreground"
+        >
+          <span className="grid place-items-center">
+            <GearSixIcon size={16} />
+          </span>
+        </button>
       </footer>
     </>
   )
@@ -334,6 +347,7 @@ const menuOpen = (): boolean =>
 // entra en 200 ms y sale en 160 ms (design.md §7).
 export function Sidebar(): React.JSX.Element {
   const open = useStore((s) => s.sidebar)
+  const pinnedBar = useStore((s) => s.prefs.pinTopBar)
   const [peek, setPeek] = useState<'off' | 'in' | 'out'>('off')
   const leaving = useRef<ReturnType<typeof setTimeout>>(undefined)
 
@@ -361,7 +375,11 @@ export function Sidebar(): React.JSX.Element {
         </div>
       </aside>
       {!open && (
-        <div aria-hidden className="fixed top-2 bottom-0 left-0 z-30 w-2" onMouseEnter={show} />
+        <div
+          aria-hidden
+          className={cn('fixed bottom-0 left-0 z-30 w-2', pinnedBar ? 'top-9' : 'top-2')}
+          onMouseEnter={show}
+        />
       )}
       {!open && peek !== 'off' && (
         <aside
@@ -370,7 +388,8 @@ export function Sidebar(): React.JSX.Element {
           onMouseLeave={hide}
           style={{ animationFillMode: 'forwards' }}
           className={cn(
-            'fixed top-2 bottom-2 left-2 z-30 flex w-60 flex-col rounded-lg border border-border bg-sidebar/80 shadow-2xl backdrop-blur-xl backdrop-saturate-150',
+            pinnedBar ? 'top-11' : 'top-2',
+            'fixed bottom-2 left-2 z-30 flex w-60 flex-col rounded-lg border border-border bg-sidebar/80 shadow-2xl backdrop-blur-xl backdrop-saturate-150',
             peek === 'in'
               ? 'animate-in duration-200 ease-out-quint slide-in-from-left-full'
               : 'animate-out duration-160 ease-in slide-out-to-left-full'

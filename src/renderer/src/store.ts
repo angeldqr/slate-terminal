@@ -1,5 +1,6 @@
 import { useRef, useSyncExternalStore } from 'react'
-import type { Agent, SessionInfo, SessionKind } from '../../shared/types'
+import type { Agent, SessionInfo, SessionKind, Status } from '../../shared/types'
+import { DEFAULT_PREFS, type Prefs } from './prefs'
 import {
   leaves,
   pane,
@@ -16,8 +17,8 @@ export type Project = { path: string; name: string; open: boolean }
 export type Session = SessionInfo & { unread: boolean }
 // Una vista es lo que llena el área del terminal: una sesión sola o varias divididas.
 export type View = { id: string; layout: Layout }
-// Lo que flota sobre la ventana: la paleta de comandos o el menú de nueva sesión.
-export type Overlay = 'palette' | 'new-session'
+// Lo que flota sobre la ventana: la paleta de comandos, el menú de nueva sesión o los ajustes.
+export type Overlay = 'palette' | 'new-session' | 'settings'
 
 type State = {
   projects: Project[]
@@ -28,6 +29,7 @@ type State = {
   sidebar: boolean
   overlay: Overlay | null
   hint: string | null
+  prefs: Prefs
 }
 
 let state: State = {
@@ -38,7 +40,8 @@ let state: State = {
   activeId: null,
   sidebar: true,
   overlay: null,
-  hint: null
+  hint: null,
+  prefs: DEFAULT_PREFS
 }
 const listeners = new Set<() => void>()
 
@@ -110,12 +113,15 @@ const newView = (sessionId: string): View => ({ id: crypto.randomUUID(), layout:
 // vista. Se guarda cuando el host mantenga las sesiones vivas entre reinicios (roadmap).
 // Carga inicial: carpetas guardadas, agentes instalados y las sesiones que siguen vivas en main.
 export async function init(): Promise<void> {
-  const [projects, agents, sessions] = await Promise.all([
+  const [projects, agents, sessions, prefs] = await Promise.all([
     slate.store.read<Project[]>('projects', []),
     slate.agents.detect(),
-    slate.sessions.list()
+    slate.sessions.list(),
+    slate.store.read<Partial<Prefs>>('prefs', {})
   ])
   setState({
+    // Lo guardado encima de los valores por defecto: una preferencia nueva no rompe un prefs.json viejo.
+    prefs: { ...DEFAULT_PREFS, ...prefs },
     projects,
     agents,
     sessions: sessions.map((s) => ({ ...s, unread: false })),
@@ -131,8 +137,46 @@ export async function init(): Promise<void> {
     const visible = viewOf(state, state.activeId) === viewOf(state, id)
     const unread = status === 'done' && (current.unread || !visible)
     patchSession(id, { status, unread })
+    notifyIfAway(current, status)
   })
-  import.meta.hot?.dispose(off)
+  // Al pulsar el aviso del sistema, Slate vuelve al frente con esa sesión.
+  const offClick = slate.onNotifyClick(
+    (id) => state.sessions.some((s) => s.id === id) && selectSession(id)
+  )
+  import.meta.hot?.dispose(() => (off(), offClick()))
+}
+
+// Aviso del sistema cuando una sesión te necesita o termina mientras miras otra ventana.
+function notifyIfAway(s: Session, status: Status): void {
+  const { notify, sound } = state.prefs
+  if (!notify || document.hasFocus() || (status !== 'attention' && status !== 'done')) return
+  const title = status === 'attention' ? `${s.title} te necesita` : `${s.title} terminó`
+  slate.notify({ id: s.id, title, body: baseName(s.cwd), silent: !sound })
+}
+
+export const testNotification = (): void =>
+  slate.notify({
+    id: '',
+    title: 'Así te avisará Slate',
+    body: 'Cuando un agente te necesite o termine y estés en otra ventana.',
+    silent: !state.prefs.sound
+  })
+
+// Se aplica al momento y se guarda cuando se calma: un deslizador no escribe el archivo en cada paso.
+// La bandeja y el tema se guardan en el acto: main los lee, y cerrar justo después debe contar.
+let pendingPrefs: ReturnType<typeof setTimeout> | undefined
+function savePrefs(): void {
+  clearTimeout(pendingPrefs)
+  pendingPrefs = undefined
+  slate.store.write('prefs', state.prefs)
+}
+addEventListener('beforeunload', () => pendingPrefs && savePrefs())
+
+export function setPrefs(patch: Partial<Prefs>): void {
+  setState({ prefs: { ...state.prefs, ...patch } })
+  clearTimeout(pendingPrefs)
+  if ('tray' in patch || 'theme' in patch) return savePrefs()
+  pendingPrefs = setTimeout(savePrefs, 200)
 }
 
 export async function addFolder(): Promise<void> {

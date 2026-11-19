@@ -4,6 +4,9 @@
 @import '@fontsource/jetbrains-mono/400.css';
 @import '@fontsource/jetbrains-mono/700.css';
 
+/* `dark:` sigue al tema elegido en Slate, no al del sistema. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
 /* Pizarra y tiza: grises neutros fríos; el color solo comunica estado.
    Se exponen con los nombres semánticos de shadcn para que sus componentes encajen. */
 :root,
@@ -46,6 +49,8 @@
   --color-sidebar: var(--sidebar);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--foreground);
+  --color-primary: var(--foreground); /* tiza: interruptores, deslizadores y botón principal */
+  --color-primary-foreground: var(--background);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--foreground);
   --color-border: var(--border);
@@ -106,6 +111,13 @@ body {
 ::-webkit-scrollbar-button {
   display: none;
   background: transparent;
+}
+
+/* Cambio de tema: el nuevo se revela en un círculo (theme.ts); sin el fundido por defecto. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
 }
 
 /* Zonas para arrastrar la ventana sin marco. */

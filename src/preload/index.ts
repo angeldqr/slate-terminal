@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import type { SessionInfo, SessionKind, Status, Agent } from '../shared/types'
+import type { SessionInfo, SessionKind, Status, Agent, Notice } from '../shared/types'
 
 // Suscribe a un canal y devuelve la función para dejar de escuchar.
 function on<A extends unknown[]>(channel: string, fn: (...args: A) => void): () => void {
@@ -33,6 +33,8 @@ const api = {
       ipcRenderer.invoke('store:write', name, data)
   },
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:pickFolder'),
+  notify: (notice: Notice): void => ipcRenderer.send('notify', notice),
+  onNotifyClick: (fn: (id: string) => void) => on('notify:click', fn),
   win: {
     isMaximized: (): Promise<boolean> => ipcRenderer.invoke('win:isMaximized'),
     minimize: (): void => ipcRenderer.send('win:minimize'),

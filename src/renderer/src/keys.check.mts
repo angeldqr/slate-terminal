@@ -13,6 +13,8 @@ assert.equal(press('Digit1', '!', { ctrlKey: true, shiftKey: true }), 'Ctrl+Shif
 assert.equal(press('Digit3', '3', { metaKey: true }), 'Cmd+3')
 // Teclas con nombre.
 assert.equal(press('Tab', 'Tab', { ctrlKey: true, shiftKey: true }), 'Ctrl+Shift+Tab')
+// Signos: la coma de Ajustes.
+assert.equal(press('Comma', ',', { ctrlKey: true }), 'Ctrl+,')
 // AltGr en teclado español llega como Ctrl+Alt: nunca coincide con un atajo de Slate.
 assert.equal(press('Digit2', '@', { ctrlKey: true, altKey: true }), 'Ctrl+Alt+2')
 // Sin modificadores: una letra sola.

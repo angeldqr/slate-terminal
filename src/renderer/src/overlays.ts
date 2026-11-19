@@ -6,7 +6,7 @@ import { terminals } from './terminals'
 // vuelve a su botón el usuario abre otra, la animación vieja no la cierra ni reabre nada al terminar.
 let turn = 0
 
-// Abre una capa (paleta o menú de nueva sesión) con su morph; solo una a la vez.
+// Abre una capa (paleta, menú de nueva sesión o ajustes) con su morph; solo una a la vez.
 // Si hay otra abierta, primero vuelve a su botón: si no, Blendy dejaría ese botón invisible.
 function openOverlay(which: Overlay): void {
   const current = getState().overlay
@@ -37,3 +37,4 @@ export function closeOverlay(): void {
 
 export const openPalette = (): void => openOverlay('palette')
 export const openNewSessionMenu = (): void => openOverlay('new-session')
+export const openSettings = (): void => openOverlay('settings')

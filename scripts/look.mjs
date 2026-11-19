@@ -13,6 +13,8 @@ writeFileSync(
   join(data, 'projects.json'),
   JSON.stringify([{ path: repo, name: basename(repo), open: true }])
 )
+// Sin avisos del sistema: los hooks de prueba llegan con la ventana sin foco.
+writeFileSync(join(data, 'prefs.json'), JSON.stringify({ notify: false }))
 
 const app = await electron.launch({ args: ['.', `--user-data-dir=${data}`] })
 const win = await app.firstWindow()
@@ -259,6 +261,72 @@ await row
   .waitFor({ timeout: 3000 })
 console.log('· el ámbar gana al azul de sin leer')
 
+// Ajustes: el engranaje se transforma en el panel y cada cambio llega al terminal en vivo.
+const overlayOpen = () => win.locator('[data-blendy-to]').count()
+await win.evaluate(() =>
+  document.querySelectorAll('.xterm').forEach((x) => (x.dataset.marca = 'antes'))
+)
+await win.locator('[data-blendy-from="settings"]').click()
+await win.waitForTimeout(150)
+await shot('ajustes-morph')
+await win.getByRole('heading', { name: 'Apariencia' }).waitFor()
+await win.waitForTimeout(500)
+await shot('ajustes')
+await win.getByRole('radio', { name: 'Claro' }).click()
+await win.waitForFunction(() => document.documentElement.dataset.theme === 'light')
+await win.waitForTimeout(250)
+await shot('tema-circulo') // a mitad de la revelación
+await win.waitForTimeout(600)
+await shot('ajustes-claro')
+console.log('· ajustes: morph desde el engranaje y tema claro')
+
+await win.getByRole('button', { name: 'Terminal', exact: true }).click()
+await win.getByRole('heading', { name: 'Terminal' }).waitFor()
+await win.getByRole('slider', { name: 'Tamaño' }).focus()
+for (let i = 0; i < 3; i++) await win.keyboard.press('ArrowRight')
+await win.getByRole('radio', { name: 'Bloque' }).click()
+await win.waitForTimeout(500)
+await shot('ajustes-terminal')
+assert.ok(
+  await win.evaluate(() => [...document.querySelectorAll('.xterm')].every((x) => x.dataset.marca)),
+  'los terminales cambian sin recrearse'
+)
+await win.waitForTimeout(300) // se guarda cuando se calma
+const saved = JSON.parse(readFileSync(join(data, 'prefs.json'), 'utf8'))
+assert.equal(saved.fontSize, 16)
+assert.equal(saved.cursorStyle, 'block')
+assert.equal(saved.notify, false, 'conserva lo que ya había')
+console.log('· ajustes: tamaño y cursor en vivo y guardados')
+
+await win.getByRole('button', { name: 'Apariencia', exact: true }).click()
+await win.getByRole('switch', { name: 'Barra superior fija' }).click()
+await win.keyboard.press('Escape')
+await win.waitForFunction(() => !document.querySelector('[data-blendy-to]'))
+await win.mouse.move(600, 500)
+await win.waitForTimeout(800)
+assert.equal(await barHeight(), 36, 'fija se queda abierta')
+await shot('claro')
+console.log('· Escape cierra ajustes; la barra fija se queda')
+
+// Ctrl+, vuelve a la última sección; la paleta rota el tema.
+await win.keyboard.press('Control+,')
+await win.getByRole('heading', { name: 'Apariencia' }).waitFor()
+await win.getByRole('switch', { name: 'Barra superior fija' }).click()
+await win.keyboard.press('Escape')
+await win.waitForFunction(() => !document.querySelector('[data-blendy-to]'))
+await win.keyboard.press('Control+Shift+P')
+await win.keyboard.type('cambiar tema')
+await win.keyboard.press('Enter')
+await win.waitForFunction(() => document.documentElement.dataset.theme === 'dark')
+assert.equal(await overlayOpen(), 1, 'la paleta sigue abierta para ver el cambio')
+await win.keyboard.press('Escape')
+await win.waitForFunction(() => !document.querySelector('[data-blendy-to]'))
+await win.mouse.move(600, 500)
+await win.waitForFunction(
+  () => document.querySelector('header').getBoundingClientRect().height === 8
+)
+console.log('· Ctrl+, recuerda la sección y la paleta cambia el tema')
+
 // Renombrar desde el menú: el campo conserva el foco, Enter guarda y Escape cancela.
 const shellRow = win.locator('[data-status]').filter({ hasText: 'Shell' })
 await shellRow.click({ button: 'right' })
@@ -286,4 +354,28 @@ assert.equal(
 console.log('· quitar carpeta: confirma y cierra sus sesiones')
 
 await app.close()
+
+// Al reabrir con el tema claro guardado, la página arranca ya en claro: sin destello oscuro.
+writeFileSync(
+  join(data, 'prefs.json'),
+  JSON.stringify({ theme: 'light', notify: false, tray: true })
+)
+const again = await electron.launch({ args: ['.', `--user-data-dir=${data}`] })
+const first = await again.firstWindow()
+await first.waitForLoadState('domcontentloaded')
+assert.equal(await first.evaluate(() => document.documentElement.dataset.theme), 'light')
+console.log('· reabre con el tema guardado desde el primer pintado')
+
+// Con la bandeja, el botón de cerrar esconde la ventana y la app sigue viva.
+await first.getByText('Empieza por una carpeta').waitFor()
+await first.evaluate(() => window.slate.win.close())
+await first.waitForTimeout(500)
+assert.equal(
+  await again.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible()),
+  false,
+  'la ventana se esconde en la bandeja'
+)
+await again.close()
+console.log('· con la bandeja, cerrar solo esconde la ventana')
+
 console.log('look: ok · capturas en .look/')

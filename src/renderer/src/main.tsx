@@ -5,6 +5,9 @@ import { createRoot } from 'react-dom/client'
 import { IconContext } from '@phosphor-icons/react'
 import App from './App'
 
+// Main manda el tema guardado ya resuelto: la página pinta con él antes de cargar sus datos.
+document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme') ?? 'dark'
+
 // Todos los iconos de Phosphor en trazo fino ("light"), como de tiza; cada uno puede cambiarlo.
 const icons = { size: 16, weight: 'light', color: 'currentColor' } as const
 

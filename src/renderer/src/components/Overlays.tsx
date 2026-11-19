@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { FolderSimplePlusIcon, TerminalWindowIcon } from '@phosphor-icons/react'
+import { CircleHalfIcon, FolderSimplePlusIcon, TerminalWindowIcon } from '@phosphor-icons/react'
 import {
   Command,
   CommandEmpty,
@@ -13,6 +13,8 @@ import {
 import { cn } from '@renderer/lib/utils'
 import { SessionIcon } from './SessionIcon'
 import { Keys } from './Keys'
+import { Settings } from './Settings'
+import { cycleTheme, THEMES } from '@renderer/theme'
 import { closeOverlay } from '@renderer/overlays'
 import { keysOf, SHORTCUTS, shortcutKeys } from '@renderer/shortcuts'
 import {
@@ -62,6 +64,19 @@ function NewSessionGroup({
         </CommandItem>
       ))}
     </CommandGroup>
+  )
+}
+
+// Se queda abierta al cambiar el tema: así se ve el cambio y se puede seguir rotando.
+function ThemeItem(): React.JSX.Element {
+  const theme = useStore((s) => s.prefs.theme)
+  return (
+    <CommandItem value="cambiar tema claro oscuro automático" onSelect={cycleTheme}>
+      <CircleHalfIcon /> Cambiar tema
+      <span className="ml-auto text-[12px] text-muted-foreground">
+        {THEMES.find((t) => t.id === theme)?.label}
+      </span>
+    </CommandItem>
   )
 }
 
@@ -124,6 +139,7 @@ function Palette(): React.JSX.Element {
         <CommandSeparator />
         <CommandGroup heading="Acciones">
           <AddFolderItem />
+          <ThemeItem />
           {paletteActions.map((a) => (
             <CommandItem
               key={a.id}
@@ -175,15 +191,20 @@ function NewSessionMenu(): React.JSX.Element {
   )
 }
 
+const CONTENT = { palette: Palette, 'new-session': NewSessionMenu, settings: Settings }
+const PANELS = {
+  palette: 'inset-x-0 top-[12vh] mx-auto w-[min(560px,calc(100vw-32px))] rounded-xl',
+  'new-session': 'bottom-12 left-2 w-60 rounded-lg',
+  settings:
+    'inset-0 m-auto h-[min(580px,calc(100vh-64px))] w-[min(820px,calc(100vw-48px))] rounded-xl'
+}
+
 // Capa flotante: fondo atenuado que cierra al hacer clic y el panel que Blendy anima desde su botón.
 // El panel se centra con márgenes automáticos y no con transform: Blendy usa el transform para animar.
 export function Overlays(): React.JSX.Element | null {
   const overlay = useStore((s) => s.overlay)
   if (!overlay) return null
-  const panel =
-    overlay === 'palette'
-      ? 'inset-x-0 top-[12vh] mx-auto w-[min(560px,calc(100vw-32px))] rounded-xl'
-      : 'bottom-12 left-2 w-60 rounded-lg'
+  const Content = CONTENT[overlay]
 
   return (
     <>
@@ -193,9 +214,11 @@ export function Overlays(): React.JSX.Element | null {
       />
       <div
         data-blendy-to={overlay}
-        className={`fixed z-50 overflow-hidden border border-border bg-popover shadow-2xl ${panel}`}
+        className={`fixed z-50 overflow-hidden border border-border bg-popover shadow-2xl ${PANELS[overlay]}`}
       >
-        <div>{overlay === 'palette' ? <Palette /> : <NewSessionMenu />}</div>
+        <div className="h-full">
+          <Content />
+        </div>
       </div>
     </>
   )
