@@ -1,74 +1,106 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
-import { join } from 'path'
+import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import { join } from 'node:path'
+import { homedir } from 'node:os'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { startHookServer } from './hooks'
+import { detectAgents } from './agents'
+import { readJson, writeJson } from './store'
+import * as sessions from './sessions'
+
+// Solo estos archivos se pueden leer o escribir desde el renderer.
+const STORES = new Set(['prefs', 'projects'])
+
+let win: BrowserWindow | null = null
 
 function createWindow(): void {
-  // Create the browser window.
-  const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+  win = new BrowserWindow({
+    width: 1200,
+    height: 760,
+    minWidth: 640,
+    minHeight: 400,
     show: false,
+    frame: false,
+    backgroundColor: '#0c0d0e',
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: true
     }
   })
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
-  })
+  win.on('ready-to-show', () => win?.show())
+  win.on('maximize', () => win?.webContents.send('win:maximized', true))
+  win.on('unmaximize', () => win?.webContents.send('win:maximized', false))
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
+  win.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
-  // HMR for renderer base on electron-vite cli.
-  // Load the remote URL for development or the local html file for production.
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    win.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
-app.whenReady().then(() => {
-  // Set app user model id for windows
-  electronApp.setAppUserModelId('com.slate.terminal')
+function registerIpc(): void {
+  ipcMain.handle('sessions:create', (_, cwd: string, kind?: string) =>
+    sessions.createSession(cwd, kind)
+  )
+  ipcMain.handle('sessions:list', () => sessions.listSessions())
+  ipcMain.handle('sessions:buffer', (_, id: string) => sessions.readBuffer(id))
+  ipcMain.handle('sessions:rename', (_, id: string, title: string) =>
+    sessions.renameSession(id, title)
+  )
+  ipcMain.handle('sessions:close', (_, id: string) => sessions.closeSession(id))
+  ipcMain.on('sessions:write', (_, id: string, data: string) => sessions.writeSession(id, data))
+  ipcMain.on('sessions:resize', (_, id: string, cols: number, rows: number) =>
+    sessions.resizeSession(id, cols, rows)
+  )
 
-  // Default open or close DevTools by F12 in development
-  // and ignore CommandOrControl + R in production.
-  // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
-  app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
+  ipcMain.handle('agents:detect', () => detectAgents())
+  ipcMain.handle('app:home', () => homedir())
+
+  ipcMain.handle('store:read', (_, name: string, fallback: unknown) =>
+    STORES.has(name) ? readJson(name, fallback) : fallback
+  )
+  ipcMain.handle(
+    'store:write',
+    (_, name: string, data: unknown) => STORES.has(name) && writeJson(name, data)
+  )
+
+  ipcMain.handle('dialog:pickFolder', async () => {
+    const res = await dialog.showOpenDialog(win!, { properties: ['openDirectory'] })
+    return res.canceled ? null : res.filePaths[0]
   })
 
-  // IPC test
-  ipcMain.on('ping', () => console.log('pong'))
+  ipcMain.on('win:minimize', () => win?.minimize())
+  ipcMain.on('win:maximize', () => (win?.isMaximized() ? win.unmaximize() : win?.maximize()))
+  ipcMain.on('win:close', () => win?.close())
+}
 
+app.whenReady().then(async () => {
+  electronApp.setAppUserModelId('com.slate.terminal')
+  app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
+
+  // Las shells siguen emitiendo mientras la ventana se cierra; enviar a una ventana destruida lanza.
+  sessions.onSessionEvent((channel, ...args) => {
+    if (win && !win.isDestroyed()) win.webContents.send(channel, ...args)
+  })
+  await startHookServer(sessions.handleHook)
+  registerIpc()
   createWindow()
 
-  app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
+  app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+  // ponytail: cerrar la ventana mata las sesiones; el host que las mantiene vivas llega en el roadmap.
+  sessions.closeAll()
+  if (process.platform !== 'darwin') app.quit()
 })
-
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.

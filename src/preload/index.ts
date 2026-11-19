@@ -1,22 +1,48 @@
-import { contextBridge } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import type { SessionInfo, Status, Agent } from '../shared/types'
 
-// Custom APIs for renderer
-const api = {}
-
-// Use `contextBridge` APIs to expose Electron APIs to
-// renderer only if context isolation is enabled, otherwise
-// just add to the DOM global.
-if (process.contextIsolated) {
-  try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', api)
-  } catch (error) {
-    console.error(error)
-  }
-} else {
-  // @ts-ignore (define in dts)
-  window.electron = electronAPI
-  // @ts-ignore (define in dts)
-  window.api = api
+// Suscribe a un canal y devuelve la función para dejar de escuchar.
+function on<A extends unknown[]>(channel: string, fn: (...args: A) => void): () => void {
+  const listener = (_: IpcRendererEvent, ...args: unknown[]): void => fn(...(args as A))
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.removeListener(channel, listener)
 }
+
+const api = {
+  sessions: {
+    create: (cwd: string, kind?: string): Promise<SessionInfo> =>
+      ipcRenderer.invoke('sessions:create', cwd, kind),
+    list: (): Promise<SessionInfo[]> => ipcRenderer.invoke('sessions:list'),
+    buffer: (id: string): Promise<string> => ipcRenderer.invoke('sessions:buffer', id),
+    rename: (id: string, title: string): Promise<void> =>
+      ipcRenderer.invoke('sessions:rename', id, title),
+    close: (id: string): Promise<void> => ipcRenderer.invoke('sessions:close', id),
+    write: (id: string, data: string): void => ipcRenderer.send('sessions:write', id, data),
+    resize: (id: string, cols: number, rows: number): void =>
+      ipcRenderer.send('sessions:resize', id, cols, rows),
+    onData: (fn: (id: string, data: string) => void) => on('session:data', fn),
+    onStatus: (fn: (id: string, status: Status) => void) => on('session:status', fn),
+    onExit: (fn: (id: string, code: number) => void) => on('session:exit', fn)
+  },
+  agents: {
+    detect: (): Promise<Agent[]> => ipcRenderer.invoke('agents:detect')
+  },
+  store: {
+    read: <T>(name: 'prefs' | 'projects', fallback: T): Promise<T> =>
+      ipcRenderer.invoke('store:read', name, fallback),
+    write: (name: 'prefs' | 'projects', data: unknown): Promise<void> =>
+      ipcRenderer.invoke('store:write', name, data)
+  },
+  home: (): Promise<string> => ipcRenderer.invoke('app:home'),
+  pickFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:pickFolder'),
+  win: {
+    minimize: (): void => ipcRenderer.send('win:minimize'),
+    maximize: (): void => ipcRenderer.send('win:maximize'),
+    close: (): void => ipcRenderer.send('win:close'),
+    onMaximized: (fn: (maximized: boolean) => void) => on('win:maximized', fn)
+  }
+}
+
+export type SlateApi = typeof api
+
+contextBridge.exposeInMainWorld('slate', api)
