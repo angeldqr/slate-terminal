@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { cn } from '@renderer/lib/utils'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
@@ -30,8 +31,16 @@ const theme = {
   brightWhite: '#edeeef'
 }
 
-export function TerminalPane({ sessionId }: { sessionId: string }): React.JSX.Element {
+// Todas las sesiones quedan montadas para no perder su pantalla; solo la activa se ve.
+export function TerminalPane({
+  sessionId,
+  active
+}: {
+  sessionId: string
+  active: boolean
+}): React.JSX.Element {
   const host = useRef<HTMLDivElement>(null)
+  const termRef = useRef<Terminal | null>(null)
 
   useEffect(() => {
     const term = new Terminal({
@@ -48,6 +57,7 @@ export function TerminalPane({ sessionId }: { sessionId: string }): React.JSX.El
     term.loadAddon(fit)
     term.loadAddon(new WebLinksAddon((_, url) => window.open(url)))
     term.open(host.current!)
+    termRef.current = term
 
     // WebGL dibuja más rápido; si la GPU pierde el contexto, xterm vuelve al renderer DOM.
     try {
@@ -60,20 +70,22 @@ export function TerminalPane({ sessionId }: { sessionId: string }): React.JSX.El
 
     const { sessions } = window.slate
     const resize = (): void => {
+      if (!host.current?.offsetWidth) return // oculta: xterm no puede medir
       fit.fit()
       sessions.resize(sessionId, term.cols, term.rows)
     }
 
+    // Primero lo que ya imprimió y después lo nuevo: IPC entrega en orden, así no se duplica nada.
     let alive = true
+    let offData = (): void => {}
     document.fonts.ready.then(async () => {
       const past = await sessions.buffer(sessionId)
       if (!alive) return
       term.write(past)
+      offData = sessions.onData((id, data) => id === sessionId && term.write(data))
       resize()
-      term.focus()
     })
 
-    const offData = sessions.onData((id, data) => id === sessionId && term.write(data))
     const input = term.onData((data) => sessions.write(sessionId, data))
     const observer = new ResizeObserver(() => alive && resize())
     observer.observe(host.current!)
@@ -84,8 +96,13 @@ export function TerminalPane({ sessionId }: { sessionId: string }): React.JSX.El
       offData()
       input.dispose()
       term.dispose()
+      termRef.current = null
     }
   }, [sessionId])
 
-  return <div ref={host} className="h-full w-full" />
+  useEffect(() => {
+    if (active) requestAnimationFrame(() => termRef.current?.focus())
+  }, [active])
+
+  return <div ref={host} className={cn('h-full w-full', !active && 'hidden')} />
 }

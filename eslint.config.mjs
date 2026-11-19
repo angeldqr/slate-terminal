@@ -29,8 +29,8 @@ export default defineConfig(
     }
   },
   {
-    // Scripts de desarrollo en JS plano: sin tipos de retorno.
-    files: ['**/*.mjs'],
+    // Scripts en JS plano y componentes generados por shadcn: sin tipos de retorno.
+    files: ['**/*.mjs', 'src/renderer/src/components/ui/**'],
     rules: { '@typescript-eslint/explicit-function-return-type': 'off' }
   },
   eslintConfigPrettier
