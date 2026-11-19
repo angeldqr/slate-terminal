@@ -1,12 +1,12 @@
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'node:path'
-import { homedir } from 'node:os'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { startHookServer } from './hooks'
 import { detectAgents } from './agents'
 import { readJson, writeJson } from './store'
 import * as sessions from './sessions'
+import type { SessionKind } from '../shared/types'
 
 // Solo estos archivos se pueden leer o escribir desde el renderer.
 const STORES = new Set(['prefs', 'projects'])
@@ -47,7 +47,7 @@ function createWindow(): void {
 }
 
 function registerIpc(): void {
-  ipcMain.handle('sessions:create', (_, cwd: string, kind?: string) =>
+  ipcMain.handle('sessions:create', (_, cwd: string, kind?: SessionKind) =>
     sessions.createSession(cwd, kind)
   )
   ipcMain.handle('sessions:list', () => sessions.listSessions())
@@ -62,7 +62,6 @@ function registerIpc(): void {
   )
 
   ipcMain.handle('agents:detect', () => detectAgents())
-  ipcMain.handle('app:home', () => homedir())
 
   ipcMain.handle('store:read', (_, name: string, fallback: unknown) =>
     STORES.has(name) ? readJson(name, fallback) : fallback
@@ -77,6 +76,7 @@ function registerIpc(): void {
     return res.canceled ? null : res.filePaths[0]
   })
 
+  ipcMain.handle('win:isMaximized', () => !!win?.isMaximized())
   ipcMain.on('win:minimize', () => win?.minimize())
   ipcMain.on('win:maximize', () => (win?.isMaximized() ? win.unmaximize() : win?.maximize()))
   ipcMain.on('win:close', () => win?.close())

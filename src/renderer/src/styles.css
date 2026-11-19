@@ -11,7 +11,7 @@
   color-scheme: dark;
   --background: #0c0d0e; /* grafito: lienzo del terminal */
   --sidebar: #151719; /* pizarra */
-  --popover: #1b1d20;
+  --popover: #151719; /* pizarra, separada por su borde */
   --accent: #24272a; /* lasca: hover y selección */
   --border: #24272a;
   --muted-foreground: #878c92; /* ceniza */
@@ -19,7 +19,6 @@
   --attention: #f0b429;
   --unread: #7aa2d6;
   --destructive: #e5534b;
-  --shadow-pop: 0 18px 50px rgb(0 0 0 / 0.55), 0 2px 6px rgb(0 0 0 / 0.35);
 }
 
 :root[data-theme='light'] {
@@ -27,14 +26,13 @@
   --background: #fafafa;
   --sidebar: #f0f1f2;
   --popover: #ffffff;
-  --accent: #e4e6e8;
+  --accent: #dcdee0;
   --border: #dcdee0;
   --muted-foreground: #6b7076;
   --foreground: #121314;
   --attention: #b7791f;
   --unread: #3b6db3;
   --destructive: #c4382f;
-  --shadow-pop: 0 18px 50px rgb(0 0 0 / 0.14), 0 2px 6px rgb(0 0 0 / 0.06);
 }
 
 @theme inline {
@@ -50,16 +48,18 @@
   --color-ring: var(--muted-foreground);
   --color-muted-foreground: var(--muted-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: #ffffff;
   --color-attention: var(--attention);
   --color-unread: var(--unread);
+  /* Escala de diseño: 6 filas, 10 tarjetas y menús, 14 paleta y diálogos. */
   --radius-sm: 6px;
-  --radius-md: 8px;
+  --radius-md: 10px;
   --radius-lg: 10px;
   --radius-xl: 14px;
+  --text-sm: 13px; /* los menús de shadcn usan text-sm: así quedan en la escala 12/13/15/20 */
   --font-sans: 'Instrument Sans Variable', 'Segoe UI Variable Text', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
   --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
-  --shadow-pop: var(--shadow-pop);
 }
 
 html,
@@ -134,15 +134,6 @@ body {
     transform: scaleY(1.15);
     opacity: 1;
   }
-}
-
-/* Barra de scroll de xterm: fina y del color de la lasca. */
-.xterm .xterm-scrollable-element > .scrollbar > .slider {
-  background: var(--accent) !important;
-  border-radius: 3px;
-}
-.xterm .xterm-scrollable-element > .scrollbar.vertical {
-  width: 6px !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import type { SessionInfo, Status, Agent } from '../shared/types'
+import type { SessionInfo, SessionKind, Status, Agent } from '../shared/types'
 
 // Suscribe a un canal y devuelve la función para dejar de escuchar.
 function on<A extends unknown[]>(channel: string, fn: (...args: A) => void): () => void {
@@ -10,7 +10,7 @@ function on<A extends unknown[]>(channel: string, fn: (...args: A) => void): () 
 
 const api = {
   sessions: {
-    create: (cwd: string, kind?: string): Promise<SessionInfo> =>
+    create: (cwd: string, kind?: SessionKind): Promise<SessionInfo> =>
       ipcRenderer.invoke('sessions:create', cwd, kind),
     list: (): Promise<SessionInfo[]> => ipcRenderer.invoke('sessions:list'),
     buffer: (id: string): Promise<string> => ipcRenderer.invoke('sessions:buffer', id),
@@ -21,8 +21,7 @@ const api = {
     resize: (id: string, cols: number, rows: number): void =>
       ipcRenderer.send('sessions:resize', id, cols, rows),
     onData: (fn: (id: string, data: string) => void) => on('session:data', fn),
-    onStatus: (fn: (id: string, status: Status) => void) => on('session:status', fn),
-    onExit: (fn: (id: string, code: number) => void) => on('session:exit', fn)
+    onStatus: (fn: (id: string, status: Status) => void) => on('session:status', fn)
   },
   agents: {
     detect: (): Promise<Agent[]> => ipcRenderer.invoke('agents:detect')
@@ -33,9 +32,9 @@ const api = {
     write: (name: 'prefs' | 'projects', data: unknown): Promise<void> =>
       ipcRenderer.invoke('store:write', name, data)
   },
-  home: (): Promise<string> => ipcRenderer.invoke('app:home'),
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:pickFolder'),
   win: {
+    isMaximized: (): Promise<boolean> => ipcRenderer.invoke('win:isMaximized'),
     minimize: (): void => ipcRenderer.send('win:minimize'),
     maximize: (): void => ipcRenderer.send('win:maximize'),
     close: (): void => ipcRenderer.send('win:close'),

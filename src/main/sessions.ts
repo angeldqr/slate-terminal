@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import * as pty from 'node-pty'
 import { AGENTS } from './agents'
 import { nextStatus, type StatusEvent } from './status'
-import type { SessionInfo } from '../shared/types'
+import type { SessionInfo, SessionKind } from '../shared/types'
 import { writeHookSettings, removeHookSettings } from './hooks'
 
 type Session = SessionInfo & { pty: pty.IPty; buffer: string; quiet?: NodeJS.Timeout }
@@ -50,7 +50,7 @@ const OSC = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g
 // eslint-disable-next-line no-control-regex
 const NOTIFY = /\x1b\](?:9|777);/
 
-export function createSession(cwd: string, kind = 'shell'): SessionInfo {
+export function createSession(cwd: string, kind: SessionKind = 'shell'): SessionInfo {
   const id = randomUUID()
   const agent = AGENTS.find((a) => a.id === kind)
   const hooked = !!agent?.hooks
@@ -94,10 +94,9 @@ export function createSession(cwd: string, kind = 'shell'): SessionInfo {
       s.quiet = setTimeout(() => update(s, { type: 'quiet' }), QUIET_MS)
     }
   })
-  proc.onExit(({ exitCode }) => {
+  proc.onExit(() => {
     clearTimeout(s.quiet)
     update(s, { type: 'exit' })
-    send('session:exit', id, exitCode)
     removeHookSettings(id)
   })
   return info(s)

@@ -13,6 +13,10 @@ const theme = {
   cursor: '#edeeef',
   cursorAccent: '#0c0d0e',
   selectionBackground: '#3a3e43',
+  overviewRulerBorder: '#0c0d0e', // mismo color que el fondo: el borde no se ve
+  scrollbarSliderBackground: '#24272a',
+  scrollbarSliderHoverBackground: '#3a3e43',
+  scrollbarSliderActiveBackground: '#5c6168',
   black: '#24272a',
   red: '#e5534b',
   green: '#8fbf7f',
@@ -51,6 +55,7 @@ export function TerminalPane({
       cursorBlink: true,
       cursorStyle: 'bar',
       scrollback: 5000,
+      overviewRuler: { width: 6 }, // también fija el ancho de la barra de scroll (14px por defecto)
       allowProposedApi: true
     })
     const fit = new FitAddon()

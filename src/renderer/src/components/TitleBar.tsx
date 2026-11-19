@@ -22,7 +22,9 @@ function WinButton({
       aria-label={label}
       className={cn(
         'no-drag grid h-9 w-11 place-items-center text-muted-foreground transition-colors duration-100',
-        danger ? 'hover:bg-destructive hover:text-white' : 'hover:bg-accent hover:text-foreground'
+        danger
+          ? 'hover:bg-destructive hover:text-destructive-foreground'
+          : 'hover:bg-accent hover:text-foreground'
       )}
     >
       {children}
@@ -32,7 +34,10 @@ function WinButton({
 
 export function TitleBar(): React.JSX.Element {
   const [maximized, setMaximized] = useState(false)
-  useEffect(() => win.onMaximized(setMaximized), [])
+  useEffect(() => {
+    win.isMaximized().then(setMaximized)
+    return win.onMaximized(setMaximized)
+  }, [])
 
   const active = useStore((s) => s.sessions.find((x) => x.id === s.activeId))
   const folder = useStore((s) => s.projects.find((p) => p.path === active?.cwd)?.name)

@@ -31,6 +31,7 @@ console.log('· shell abierta')
 
 // Clic derecho en la carpeta → Claude Code, como lo haría el usuario.
 await win.getByText(basename(repo), { exact: true }).click({ button: 'right' })
+await win.waitForTimeout(250) // deja terminar el fundido de entrada
 await shot('menu-carpeta')
 await win.getByRole('menuitem', { name: 'Claude Code' }).click()
 const claude = await win.evaluate(async () =>
@@ -65,6 +66,45 @@ const forged = await fetch(url.replace(/hooks\/\w+/, 'hooks/token-falso'), {
   body: '{}'
 })
 assert.equal(forged.status, 404, 'un token falso se rechaza')
+
+// "Terminó sin leer" (azul) no debe tapar un "te necesita" (ámbar) posterior.
+const hook = (name) =>
+  fetch(url, { method: 'POST', body: JSON.stringify({ hook_event_name: name }) })
+await win.locator('[data-status]').filter({ hasText: 'Shell' }).click()
+await hook('UserPromptSubmit')
+await hook('Stop')
+await row.and(win.locator('[data-unread="true"]')).waitFor({ timeout: 3000 })
+await hook('Notification')
+await row
+  .and(win.locator('[data-status="attention"][data-unread="false"]'))
+  .waitFor({ timeout: 3000 })
+console.log('· el ámbar gana al azul de sin leer')
+
+// Renombrar desde el menú: el campo conserva el foco, Enter guarda y Escape cancela.
+const shellRow = win.locator('[data-status]').filter({ hasText: 'Shell' })
+await shellRow.click({ button: 'right' })
+await win.getByRole('menuitem', { name: 'Renombrar' }).click()
+await win.locator('input:focus').waitFor({ timeout: 3000 }) // el campo toma el foco al cerrarse el menú
+await win.keyboard.type('Servidor')
+await win.keyboard.press('Enter')
+await win.locator('[data-status]').filter({ hasText: 'Servidor' }).waitFor({ timeout: 3000 })
+await win.locator('[data-status]').filter({ hasText: 'Servidor' }).dblclick()
+await win.keyboard.type('No guardar')
+await win.keyboard.press('Escape')
+await win.locator('[data-status]').filter({ hasText: 'Servidor' }).waitFor({ timeout: 3000 })
+console.log('· renombrar: Enter guarda, Escape cancela')
+
+// Quitar la carpeta pide confirmar y cierra sus sesiones en vez de dejarlas invisibles.
+await win.getByText(basename(repo), { exact: true }).click({ button: 'right' })
+await win.getByRole('menuitem', { name: 'Quitar de la barra lateral' }).click()
+await win.getByRole('menuitem', { name: /Cerrará sus 2 sesiones/ }).click()
+await win.getByText('Empieza por una carpeta').waitFor({ timeout: 3000 })
+assert.equal(
+  (await win.evaluate(() => window.slate.sessions.list())).length,
+  0,
+  'sin sesiones vivas'
+)
+console.log('· quitar carpeta: confirma y cierra sus sesiones')
 
 await app.close()
 console.log('look: ok · capturas en .look/')
