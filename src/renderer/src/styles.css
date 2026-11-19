@@ -1,0 +1,57 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/instrument-sans';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/700.css';
+
+/* Pizarra y tiza: grises neutros fríos; el color solo comunica estado. */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --canvas: #0c0d0e; /* grafito */
+  --surface: #151719; /* pizarra */
+  --line: #24272a; /* lasca */
+  --muted: #878c92; /* ceniza */
+  --text: #edeeef; /* tiza */
+  --attention: #f0b429;
+  --unread: #7aa2d6;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --canvas: #fafafa;
+  --surface: #f0f1f2;
+  --line: #dcdee0;
+  --muted: #6b7076;
+  --text: #121314;
+  --attention: #b7791f;
+  --unread: #3b6db3;
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-line: var(--line);
+  --color-muted: var(--muted);
+  --color-text: var(--text);
+  --color-attention: var(--attention);
+  --color-unread: var(--unread);
+  --font-sans: 'Instrument Sans Variable', 'Segoe UI Variable Text', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
