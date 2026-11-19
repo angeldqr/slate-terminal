@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Copy, Minus, PanelLeft, Square, X } from 'lucide-react'
+import { Copy, Minus, PanelLeft, Search, Square, X } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
-import { toggleSidebar, useStore } from '@renderer/store'
+import { openPalette } from '@renderer/overlays'
+import { shortcutKeys } from '@renderer/shortcuts'
+import { samePath, toggleSidebar, useStore } from '@renderer/store'
 
 const { win } = window.slate
+const paletteKeys = shortcutKeys('palette').replaceAll('+', ' ')
 
 function WinButton({
   onClick,
@@ -40,7 +43,10 @@ export function TitleBar(): React.JSX.Element {
   }, [])
 
   const active = useStore((s) => s.sessions.find((x) => x.id === s.activeId))
-  const folder = useStore((s) => s.projects.find((p) => p.path === active?.cwd)?.name)
+  const folder = useStore(
+    (s) => s.projects.find((p) => active && samePath(p.path, active.cwd))?.name
+  )
+  const hint = useStore((s) => s.hint)
 
   return (
     <header className="drag flex h-9 shrink-0 items-center">
@@ -51,12 +57,28 @@ export function TitleBar(): React.JSX.Element {
       >
         <PanelLeft size={16} strokeWidth={1.6} />
       </button>
-      <p className="ml-3 truncate text-[12px] text-muted-foreground">
-        {active && (
-          <>
-            <span className="text-foreground">{active.title}</span>
-            {folder && <span> en {folder}</span>}
-          </>
+      {/* Blendy transforma este botón en la paleta: necesita un único hijo envoltorio. */}
+      <button
+        data-blendy-from="palette"
+        onClick={openPalette}
+        className="no-drag ml-1.5 h-6 rounded-md border border-border px-2 text-[12px] text-muted-foreground transition-colors duration-120 hover:bg-accent/40 hover:text-foreground"
+      >
+        <span className="flex items-center gap-1.5">
+          <Search size={13} strokeWidth={1.6} />
+          Buscar
+          <kbd className="font-sans text-[12px] opacity-70">{paletteKeys}</kbd>
+        </span>
+      </button>
+      <p className="ml-3 truncate text-[12px] text-muted-foreground" aria-live="polite">
+        {hint ? (
+          <span className="text-foreground">{hint}</span>
+        ) : (
+          active && (
+            <>
+              <span className="text-foreground">{active.title}</span>
+              {folder && <span> en {folder}</span>}
+            </>
+          )
         )}
       </p>
       <div className="ml-auto flex">

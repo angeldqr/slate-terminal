@@ -1,8 +1,12 @@
-import { use } from 'react'
+import { use, useEffect } from 'react'
 import { FolderPlus, SquareTerminal } from 'lucide-react'
+import { cn } from './lib/utils'
 import { TitleBar } from './components/TitleBar'
 import { Sidebar } from './components/Sidebar'
 import { Views } from './components/Views'
+import { Overlays } from './components/Overlays'
+import { initMotion } from './motion'
+import { installShortcuts } from './shortcuts'
 import { addFolder, init, newSession, useStore } from './store'
 
 // Si algo falla al cargar, Slate abre igual con la barra lateral vacía en vez de en blanco.
@@ -43,17 +47,27 @@ function App(): React.JSX.Element {
   const hasSessions = useStore((s) => s.sessions.length > 0)
   const sidebar = useStore((s) => s.sidebar)
 
+  // Tras el primer render: los botones de origen de Blendy ya existen.
+  useEffect(() => {
+    initMotion()
+    return installShortcuts()
+  }, [])
+
   return (
     <div className="flex h-full flex-col">
       <TitleBar />
       <div className="flex min-h-0 flex-1">
-        {sidebar && <Sidebar />}
+        <Sidebar />
         <main
-          className={`${sidebar ? '' : 'ml-2 '}mr-2 mb-2 min-w-0 flex-1 overflow-hidden rounded-lg bg-background shadow-[0_0_0_1px_var(--border)]`}
+          className={cn(
+            'mr-2 mb-2 min-w-0 flex-1 overflow-hidden rounded-lg bg-background shadow-[0_0_0_1px_var(--border)] transition-[margin] duration-200 ease-out-quint',
+            !sidebar && 'ml-2'
+          )}
         >
           {hasSessions ? <Views /> : <Empty />}
         </main>
       </div>
+      <Overlays />
     </div>
   )
 }

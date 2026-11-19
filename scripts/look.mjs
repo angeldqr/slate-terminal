@@ -88,6 +88,108 @@ assert.equal(
 )
 console.log('· cerrar paneles colapsa la división')
 
+// Paleta: Ctrl+Shift+P desde el terminal, con morph desde el botón Buscar; Enter ejecuta la acción.
+const sessionCount = () => win.evaluate(async () => (await window.slate.sessions.list()).length)
+// waitForFunction no espera una función async (la promesa cuenta como "verdadera"): se sondea aquí.
+const waitSessions = async (n) => {
+  for (let i = 0; i < 100; i++) {
+    if ((await sessionCount()) === n) return
+    await win.waitForTimeout(50)
+  }
+  assert.fail(`se esperaban ${n} sesiones y hay ${await sessionCount()}`)
+}
+const searchButton = win.locator('[data-blendy-from="palette"]')
+await win.locator('.xterm').first().click()
+await win.keyboard.press('Control+Shift+P')
+await win.waitForTimeout(90)
+await shot('paleta-morph')
+await win.getByPlaceholder('Busca una sesión, carpeta o acción…').waitFor()
+await win.waitForTimeout(450)
+await shot('paleta')
+await win.keyboard.type('nueva shell')
+await win.keyboard.press('Enter')
+await waitSessions(2)
+await win.locator('[data-blendy-to]').waitFor({ state: 'detached' })
+assert.equal(
+  await searchButton.evaluate((el) => getComputedStyle(el).opacity),
+  '1',
+  'Buscar vuelve a verse'
+)
+console.log('· paleta: Ctrl+Shift+P, buscar y ejecutar')
+
+// Atajos con el foco en el terminal: Ctrl+Shift no le quita teclas a la shell.
+const sidebarWidth = () =>
+  win.evaluate(() => document.querySelector('aside').getBoundingClientRect().width)
+await win.keyboard.press('Control+Shift+B')
+await win.waitForFunction(() => document.querySelector('aside').getBoundingClientRect().width === 0)
+await win.keyboard.press('Control+Shift+B')
+await win.waitForFunction(
+  () => document.querySelector('aside').getBoundingClientRect().width === 240
+)
+assert.equal(await sidebarWidth(), 240)
+console.log('· Ctrl+Shift+B pliega y despliega la barra lateral')
+
+// Plegada, la barra sale flotando al llevar el puntero al borde izquierdo y se va al salir.
+await win.keyboard.press('Control+Shift+B')
+await win.waitForFunction(() => document.querySelector('aside').getBoundingClientRect().width === 0)
+await win.mouse.move(300, 300)
+await win.mouse.move(1, 300, { steps: 4 })
+const floating = win.locator('aside[aria-label="Barra lateral"]')
+await floating.waitFor()
+await win.waitForTimeout(250)
+await shot('barra-flotante')
+await win.mouse.move(700, 300, { steps: 4 })
+await floating.waitFor({ state: 'detached' })
+await win.keyboard.press('Control+Shift+B')
+await win.waitForFunction(
+  () => document.querySelector('aside').getBoundingClientRect().width === 240
+)
+console.log('· la barra plegada sale flotando desde el borde')
+
+// Desde la paleta, "Buscar en el terminal" deja el foco en el campo de búsqueda, no en el terminal.
+await win.locator('.xterm:visible').first().click()
+await win.keyboard.press('Control+Shift+P')
+await win.keyboard.type('buscar en el terminal')
+await win.keyboard.press('Enter')
+await win.waitForFunction(
+  () => document.activeElement?.getAttribute('aria-label') === 'Buscar en el terminal'
+)
+await win.keyboard.press('Escape')
+console.log('· acción de la paleta conserva su foco')
+
+await win.keyboard.press('Control+Shift+F')
+await win.getByLabel('Buscar en el terminal').waitFor()
+await shot('buscar')
+await win.keyboard.press('Escape')
+await win.getByLabel('Buscar en el terminal').waitFor({ state: 'detached' })
+console.log('· Ctrl+Shift+F abre la búsqueda y Escape la cierra')
+
+// Ctrl+1 salta a la primera sesión de la barra lateral.
+await win.keyboard.press('Control+1')
+// El primer terminal lleva la marca puesta al principio: con Ctrl+1 es el visible, con Ctrl+2 no.
+const markedVisible = () =>
+  win.evaluate(() => document.querySelector('[data-marca]').offsetWidth > 0)
+await win.waitForFunction(() => document.querySelector('[data-marca]').offsetWidth > 0)
+await win.keyboard.press('Control+2')
+await win.waitForFunction(() => document.querySelector('[data-marca]').offsetWidth === 0)
+assert.equal(await markedVisible(), false)
+console.log('· Ctrl+1 y Ctrl+2 saltan a la sesión de esa posición')
+
+await win.keyboard.press('Control+Shift+W')
+await waitSessions(1)
+console.log('· Ctrl+Shift+W cierra la sesión activa')
+
+// Menú de nueva sesión: sale del botón del pie con morph.
+await win.locator('[data-blendy-from="new-session"]').click()
+await win.waitForTimeout(450)
+await shot('nueva-sesion')
+await win.getByRole('option', { name: 'Nueva shell' }).click()
+await waitSessions(2)
+await win.keyboard.press('Control+Shift+W')
+await waitSessions(1)
+assert.equal(await sessionCount(), 1)
+console.log('· menú de nueva sesión desde el pie')
+
 // Clic derecho en la carpeta → Claude Code, como lo haría el usuario.
 await win.getByText(basename(repo), { exact: true }).click({ button: 'right' })
 await win.waitForTimeout(250) // deja terminar el fundido de entrada

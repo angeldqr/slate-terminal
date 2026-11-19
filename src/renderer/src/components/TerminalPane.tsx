@@ -1,9 +1,12 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { SearchAddon } from '@xterm/addon-search'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
+import { terminals } from '@renderer/terminals'
 
 // Colores ANSI en la paleta pizarra y tiza: apagados, sin saturar.
 const theme = {
@@ -43,6 +46,9 @@ export function TerminalPane({
 }): React.JSX.Element {
   const host = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
+  const search = useRef<SearchAddon | null>(null)
+  // Cada petición de búsqueda suma uno: la barra se abre o, si ya está abierta, recupera el foco.
+  const [findRequest, setFindRequest] = useState(0)
 
   useEffect(() => {
     const term = new Terminal({
@@ -59,6 +65,8 @@ export function TerminalPane({
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.loadAddon(new WebLinksAddon((_, url) => window.open(url)))
+    search.current = new SearchAddon()
+    term.loadAddon(search.current)
     term.open(host.current!)
     termRef.current = term
 
@@ -94,11 +102,27 @@ export function TerminalPane({
     })
 
     const input = term.onData((data) => sessions.write(sessionId, data))
+    // Lo que los atajos pueden hacer con este terminal cuando tiene el foco.
+    terminals.set(sessionId, {
+      copy: () => {
+        const text = term.getSelection()
+        if (text) navigator.clipboard.writeText(text).catch(() => {}) // sin permiso: no copia
+      },
+      paste: () => {
+        navigator.clipboard
+          .readText()
+          .then((text) => term.paste(text))
+          .catch(() => {}) // portapapeles vacío o sin permiso: no pega nada
+      },
+      find: () => setFindRequest((n) => n + 1),
+      focus: () => term.focus()
+    })
     const observer = new ResizeObserver(() => alive && resize())
     observer.observe(host.current!)
 
     return () => {
       alive = false
+      terminals.delete(sessionId)
       clearTimeout(settle)
       observer.disconnect()
       offData()
@@ -112,5 +136,81 @@ export function TerminalPane({
     if (focused) requestAnimationFrame(() => termRef.current?.focus())
   }, [focused])
 
-  return <div ref={host} className="h-full w-full" />
+  const closeFind = (): void => {
+    setFindRequest(0)
+    search.current?.clearDecorations()
+    termRef.current?.clearSelection()
+    termRef.current?.focus()
+  }
+
+  return (
+    <div className="relative h-full w-full">
+      <div ref={host} className="h-full w-full" />
+      {findRequest > 0 && (
+        <FindBar
+          request={findRequest}
+          onFind={(query, back) =>
+            back
+              ? search.current?.findPrevious(query)
+              : search.current?.findNext(query, { incremental: true })
+          }
+          onClose={closeFind}
+        />
+      )}
+    </div>
+  )
+}
+
+const findButton =
+  'grid size-6 place-items-center rounded-sm text-muted-foreground transition-colors duration-120 hover:bg-accent hover:text-foreground'
+
+// Barra compacta de búsqueda: Enter busca hacia abajo, Shift+Enter hacia arriba, Escape cierra.
+function FindBar({
+  request,
+  onFind,
+  onClose
+}: {
+  request: number
+  onFind: (query: string, back: boolean) => void
+  onClose: () => void
+}): React.JSX.Element {
+  const [query, setQuery] = useState('')
+  const input = useRef<HTMLInputElement>(null)
+  useEffect(() => input.current?.select(), [request])
+  return (
+    <div className="absolute top-1 right-3 z-10 flex h-8 items-center gap-0.5 rounded-md border border-border bg-popover pr-1 pl-2 shadow-lg">
+      <input
+        ref={input}
+        value={query}
+        placeholder="Buscar"
+        aria-label="Buscar en el terminal"
+        onChange={(e) => {
+          setQuery(e.target.value)
+          if (e.target.value) onFind(e.target.value, false)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') onClose()
+          if (e.key === 'Enter' && query) onFind(query, e.shiftKey)
+        }}
+        className="w-44 bg-transparent text-[12px] outline-none placeholder:text-muted-foreground"
+      />
+      <button
+        className={findButton}
+        aria-label="Anterior"
+        onClick={() => query && onFind(query, true)}
+      >
+        <ChevronUp size={14} strokeWidth={1.6} />
+      </button>
+      <button
+        className={findButton}
+        aria-label="Siguiente"
+        onClick={() => query && onFind(query, false)}
+      >
+        <ChevronDown size={14} strokeWidth={1.6} />
+      </button>
+      <button className={findButton} aria-label="Cerrar búsqueda" onClick={onClose}>
+        <X size={14} strokeWidth={1.6} />
+      </button>
+    </div>
+  )
 }

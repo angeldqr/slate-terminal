@@ -78,6 +78,30 @@ body {
   user-select: none;
 }
 
+/* Tailwind 4 pinta un `border` sin color con el color del texto; los componentes de shadcn
+   asumen que por defecto es el color de borde. */
+*,
+::before,
+::after {
+  border-color: var(--border);
+}
+
+/* Barras de scroll finas y del color de la lasca, como la del terminal. */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--accent);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner,
+::-webkit-scrollbar-button {
+  display: none;
+  background: transparent;
+}
+
 /* Zonas para arrastrar la ventana sin marco. */
 .drag {
   -webkit-app-region: drag;

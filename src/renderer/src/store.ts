@@ -16,6 +16,8 @@ export type Project = { path: string; name: string; open: boolean }
 export type Session = SessionInfo & { unread: boolean }
 // Una vista es lo que llena el área del terminal: una sesión sola o varias divididas.
 export type View = { id: string; layout: Layout }
+// Lo que flota sobre la ventana: la paleta de comandos o el menú de nueva sesión.
+export type Overlay = 'palette' | 'new-session'
 
 type State = {
   projects: Project[]
@@ -24,6 +26,8 @@ type State = {
   agents: Agent[]
   activeId: string | null
   sidebar: boolean
+  overlay: Overlay | null
+  hint: string | null
 }
 
 let state: State = {
@@ -32,7 +36,9 @@ let state: State = {
   views: [],
   agents: [],
   activeId: null,
-  sidebar: true
+  sidebar: true,
+  overlay: null,
+  hint: null
 }
 const listeners = new Set<() => void>()
 
@@ -41,11 +47,19 @@ function setState(patch: Partial<State>): void {
   listeners.forEach((l) => l())
 }
 
+// Para lo que vive fuera de React (atajos, menús): leer el estado sin suscribirse.
+export const getState = (): State => state
+
 const subscribe = (l: () => void): (() => void) => (listeners.add(l), () => listeners.delete(l))
 
-// Igualdad de un nivel: dos `filter()` con las mismas sesiones cuentan como el mismo valor.
-function shallowEqual(a: unknown, b: unknown): boolean {
+// Igualdad de selección: los arrays se comparan elemento a elemento a cualquier profundidad
+// (`groupByView` devuelve arrays de arrays) y los objetos, campo a campo por identidad.
+// Así dos selecciones con las mismas sesiones cuentan como el mismo valor.
+function sameSelection(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((x, i) => sameSelection(x, b[i]))
+  }
   if (typeof a !== 'object' || typeof b !== 'object' || !a || !b) return false
   const ka = Object.keys(a)
   const kb = Object.keys(b)
@@ -61,7 +75,7 @@ export function useStore<T>(pick: (s: State) => T): T {
   const last = useRef<T>(undefined)
   return useSyncExternalStore(subscribe, () => {
     const next = pick(state)
-    if (!shallowEqual(last.current, next)) last.current = next
+    if (!sameSelection(last.current, next)) last.current = next
     return last.current as T
   })
 }
@@ -224,3 +238,84 @@ export function renameSession(id: string, title: string): void {
 }
 
 export const toggleSidebar = (): void => setState({ sidebar: !state.sidebar })
+
+export const setOverlay = (overlay: Overlay | null): void => setState({ overlay })
+
+// Aviso breve en la barra de título; se borra solo.
+let hintTimer: ReturnType<typeof setTimeout> | undefined
+export function flashHint(hint: string): void {
+  clearTimeout(hintTimer)
+  setState({ hint })
+  hintTimer = setTimeout(() => setState({ hint: null }), 2500)
+}
+
+// Agrupa sesiones por vista en el orden en que aparecen: así se muestran en la barra lateral.
+export function groupByView(s: State, sessions: Session[]): Session[][] {
+  const groups = new Map<string, Session[]>()
+  for (const x of sessions) {
+    const key = viewOf(s, x.id)?.id ?? x.id
+    groups.set(key, [...(groups.get(key) ?? []), x])
+  }
+  return [...groups.values()]
+}
+
+const inProject = (s: State, x: Session): boolean => s.projects.some((p) => samePath(p.path, x.cwd))
+
+// El orden exacto de la barra lateral: Ctrl+1…9 salta a la sesión que ves en esa posición.
+export const sidebarOrder = (s: State): Session[] => [
+  ...s.projects.flatMap((p) =>
+    p.open
+      ? groupByView(
+          s,
+          s.sessions.filter((x) => samePath(x.cwd, p.path))
+        ).flat()
+      : []
+  ),
+  ...groupByView(
+    s,
+    s.sessions.filter((x) => !inProject(s, x))
+  ).flat()
+]
+
+// La carpeta donde abrir algo nuevo: la de la sesión activa o, si no hay, la primera.
+export const currentFolder = (s: State): string | undefined =>
+  s.sessions.find((x) => x.id === s.activeId)?.cwd ?? s.projects[0]?.path
+
+export function selectByIndex(index: number): void {
+  const target = sidebarOrder(state)[index]
+  if (target) selectSession(target.id)
+}
+
+export function cycleView(step: 1 | -1): void {
+  if (state.views.length < 2) return
+  const current = state.views.findIndex((v) => v === viewOf(state, state.activeId))
+  const next = state.views[(current + step + state.views.length) % state.views.length]
+  selectSession(leaves(next.layout)[0])
+}
+
+// Salta a la siguiente sesión que te necesita, en el orden de la barra lateral.
+export function nextNeedingYou(): void {
+  const order = sidebarOrder(state)
+  const from = order.findIndex((x) => x.id === state.activeId)
+  const rotated = [...order.slice(from + 1), ...order.slice(0, from + 1)]
+  const target = rotated.find((x) => x.status === 'attention')
+  if (target) selectSession(target.id)
+  else flashHint('Ninguna sesión te necesita ahora')
+}
+
+// Cerrar con el teclado: si el agente trabaja, hay que repetir el atajo para confirmarlo.
+let closeArmedFor: string | null = null
+let closeArmTimer: ReturnType<typeof setTimeout> | undefined
+export function closeActive(again: string): void {
+  const active = state.sessions.find((x) => x.id === state.activeId)
+  if (!active) return
+  if (active.status === 'working' && closeArmedFor !== active.id) {
+    closeArmedFor = active.id
+    flashHint(`Está trabajando. Pulsa ${again} otra vez para cerrarla.`)
+    clearTimeout(closeArmTimer)
+    closeArmTimer = setTimeout(() => (closeArmedFor = null), 2500)
+    return
+  }
+  closeArmedFor = null
+  closeSession(active.id)
+}

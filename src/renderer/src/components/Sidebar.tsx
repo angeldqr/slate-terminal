@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react'
-import { Bot, ChevronRight, FolderPlus, Plus, SquareTerminal } from 'lucide-react'
+import { Bot, ChevronRight, Plus, SquareTerminal } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import {
-  addFolder,
   closeSession,
+  groupByView,
   isShared,
   moveToOwnView,
   newSession,
@@ -27,6 +27,7 @@ import {
   ContextMenuTrigger
 } from '@renderer/components/ui/context-menu'
 import { SessionIcon } from '@renderer/components/SessionIcon'
+import { openNewSessionMenu } from '@renderer/overlays'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -191,18 +192,16 @@ function SessionRow({ session, active }: { session: Session; active: boolean }):
 // Las sesiones que comparten vista van juntas dentro de un recuadro, en el orden en que aparecen.
 function SessionList({ sessions }: { sessions: Session[] }): React.JSX.Element {
   const activeId = useStore((s) => s.activeId)
-  const viewIds = useStore((s) => sessions.map((x) => viewOf(s, x.id)?.id ?? x.id))
-  const groups = new Map<string, Session[]>()
-  sessions.forEach((s, i) => groups.set(viewIds[i], [...(groups.get(viewIds[i]) ?? []), s]))
+  const groups = useStore((s) => groupByView(s, sessions))
 
   return (
     <>
-      {[...groups].map(([viewId, members]) => {
+      {groups.map((members) => {
         const rows = members.map((s) => (
           <SessionRow key={s.id} session={s} active={s.id === activeId} />
         ))
         return members.length > 1 ? (
-          <div key={viewId} className="space-y-0.5 rounded-md border border-border p-0.5">
+          <div key={members[0].id} className="space-y-0.5 rounded-md border border-border p-0.5">
             {rows}
           </div>
         ) : (
@@ -293,10 +292,12 @@ function OtherSessions(): React.JSX.Element | null {
   )
 }
 
-export function Sidebar(): React.JSX.Element {
+// Carpetas, sesiones y el botón de nueva sesión. Lo comparten la barra acoplada y la flotante;
+// solo la acoplada es origen del morph de Blendy (dos orígenes con el mismo id lo confundirían).
+function SidebarContent({ morphSource }: { morphSource: boolean }): React.JSX.Element {
   const projects = useStore((s) => s.projects)
   return (
-    <aside className="flex w-60 shrink-0 flex-col">
+    <>
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 pt-1">
         {projects.map((p) => (
           <FolderGroup key={p.path} project={p} />
@@ -304,13 +305,78 @@ export function Sidebar(): React.JSX.Element {
         <OtherSessions />
       </nav>
       <footer className="flex h-11 items-center px-2">
+        {/* Blendy transforma este botón en el menú de nueva sesión: un único hijo envoltorio. */}
         <button
-          onClick={addFolder}
+          data-blendy-from={morphSource ? 'new-session' : undefined}
+          onClick={openNewSessionMenu}
           className={cn(rowClass, 'w-auto text-muted-foreground hover:text-foreground')}
         >
-          <FolderPlus size={15} strokeWidth={1.6} /> Añadir carpeta
+          <span className="flex items-center gap-2">
+            <Plus size={15} strokeWidth={1.6} /> Nueva sesión
+          </span>
         </button>
       </footer>
-    </aside>
+    </>
+  )
+}
+
+// Un menú de Radix abierto vive fuera de la barra flotante: salir hacia él no debe esconderla.
+const menuOpen = (): boolean =>
+  !!document.querySelector(
+    '[data-slot="context-menu-content"], [data-slot="dropdown-menu-content"]'
+  )
+
+// Acoplada: siempre montada para animar su ancho (200 ms con la curva base), y su contenido
+// conserva los 240 px mientras se cierra para no reacomodarse.
+// Plegada: al llevar el puntero al borde izquierdo sale flotando sobre el terminal, esmerilada;
+// entra en 200 ms y sale en 160 ms (design.md §7).
+export function Sidebar(): React.JSX.Element {
+  const open = useStore((s) => s.sidebar)
+  const [peek, setPeek] = useState<'off' | 'in' | 'out'>('off')
+  const leaving = useRef<ReturnType<typeof setTimeout>>(undefined)
+
+  const show = (): void => {
+    clearTimeout(leaving.current)
+    setPeek('in')
+  }
+  const hide = (): void => {
+    if (menuOpen()) return
+    setPeek('out')
+    leaving.current = setTimeout(() => setPeek('off'), 160)
+  }
+
+  return (
+    <>
+      <aside
+        inert={!open}
+        className={cn(
+          'shrink-0 overflow-hidden transition-[width] duration-200 ease-out-quint',
+          open ? 'w-60' : 'w-0'
+        )}
+      >
+        <div className="flex h-full w-60 flex-col">
+          <SidebarContent morphSource />
+        </div>
+      </aside>
+      {!open && (
+        <div aria-hidden className="fixed top-9 bottom-0 left-0 z-30 w-2" onMouseEnter={show} />
+      )}
+      {!open && peek !== 'off' && (
+        <aside
+          aria-label="Barra lateral"
+          onMouseEnter={show}
+          onMouseLeave={hide}
+          style={{ animationFillMode: 'forwards' }}
+          className={cn(
+            'fixed top-9 bottom-2 left-2 z-30 flex w-60 flex-col rounded-lg border border-border bg-sidebar/80 shadow-2xl backdrop-blur-xl backdrop-saturate-150',
+            peek === 'in'
+              ? 'animate-in duration-200 ease-out-quint slide-in-from-left-full'
+              : 'animate-out duration-160 ease-in slide-out-to-left-full'
+          )}
+        >
+          <SidebarContent morphSource={false} />
+        </aside>
+      )}
+    </>
   )
 }

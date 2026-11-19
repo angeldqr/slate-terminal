@@ -1,0 +1,193 @@
+import {
+  ArrowLeftRight,
+  Bell,
+  ClipboardPaste,
+  Columns2,
+  Copy,
+  PanelLeft,
+  Plus,
+  Rows2,
+  Search,
+  SquareTerminal,
+  X,
+  type LucideIcon
+} from 'lucide-react'
+import { comboOf } from './keys'
+import {
+  closeActive,
+  currentFolder,
+  cycleView,
+  getState,
+  newSession,
+  nextNeedingYou,
+  selectByIndex,
+  splitSession,
+  toggleSidebar
+} from './store'
+import { terminals } from './terminals'
+import { openNewSessionMenu, openPalette } from './overlays'
+
+export const isMac = navigator.userAgent.includes('Mac')
+
+// En Windows y Linux todas las acciones van con Ctrl+Shift: Ctrl más una letra es del terminal
+// (Ctrl+W borra una palabra, Ctrl+K la línea; Claude Code usa Ctrl+B y Ctrl+T…). Slate solo toma
+// Ctrl+Tab y Ctrl+1…9, que las shells no usan. En Mac van con Cmd, que el terminal no usa.
+export type Shortcut = {
+  id: string
+  label: string
+  win: string
+  mac: string
+  run: () => void
+  icon?: LucideIcon
+  danger?: boolean // destructiva: va al final de la paleta y en rojo
+  inPalette?: boolean // false: no aparece como acción en la paleta
+}
+
+const active = (): string | null => getState().activeId
+const onActiveTerminal = (action: 'copy' | 'paste' | 'find') => () => {
+  const id = active()
+  if (id) terminals.get(id)?.[action]()
+}
+
+export const SHORTCUTS: Shortcut[] = [
+  {
+    id: 'palette',
+    label: 'Paleta de comandos',
+    win: 'Ctrl+Shift+P',
+    mac: 'Cmd+K',
+    run: openPalette,
+    inPalette: false
+  },
+  {
+    id: 'new-shell',
+    label: 'Nueva shell',
+    win: 'Ctrl+Shift+T',
+    mac: 'Cmd+T',
+    icon: SquareTerminal,
+    run: () => {
+      const folder = currentFolder(getState())
+      if (folder) newSession(folder)
+    },
+    inPalette: false // la paleta ya la muestra en su grupo de nueva sesión
+  },
+  {
+    id: 'new-session',
+    label: 'Nueva sesión…',
+    win: 'Ctrl+Shift+N',
+    mac: 'Cmd+N',
+    icon: Plus,
+    run: openNewSessionMenu
+  },
+  {
+    id: 'split-right',
+    label: 'Dividir a la derecha',
+    win: 'Ctrl+Shift+D',
+    mac: 'Cmd+D',
+    icon: Columns2,
+    run: () => active() && splitSession(active()!, 'row')
+  },
+  {
+    id: 'split-down',
+    label: 'Dividir abajo',
+    win: 'Ctrl+Shift+E',
+    mac: 'Cmd+Shift+D',
+    icon: Rows2,
+    run: () => active() && splitSession(active()!, 'col')
+  },
+  {
+    id: 'find',
+    label: 'Buscar en el terminal',
+    win: 'Ctrl+Shift+F',
+    mac: 'Cmd+F',
+    icon: Search,
+    run: onActiveTerminal('find')
+  },
+  {
+    id: 'next-attention',
+    label: 'Siguiente sesión que te necesita',
+    win: 'Ctrl+Shift+J',
+    mac: 'Cmd+J',
+    icon: Bell,
+    run: nextNeedingYou
+  },
+  {
+    id: 'next-view',
+    label: 'Vista siguiente',
+    win: 'Ctrl+Tab',
+    mac: 'Ctrl+Tab',
+    icon: ArrowLeftRight,
+    run: () => cycleView(1)
+  },
+  {
+    id: 'prev-view',
+    label: 'Vista anterior',
+    win: 'Ctrl+Shift+Tab',
+    mac: 'Ctrl+Shift+Tab',
+    icon: ArrowLeftRight,
+    run: () => cycleView(-1)
+  },
+  {
+    id: 'sidebar',
+    label: 'Mostrar u ocultar la barra lateral',
+    win: 'Ctrl+Shift+B',
+    mac: 'Cmd+B',
+    icon: PanelLeft,
+    run: toggleSidebar
+  },
+  {
+    id: 'copy',
+    label: 'Copiar selección',
+    win: 'Ctrl+Shift+C',
+    mac: 'Cmd+C',
+    icon: Copy,
+    run: onActiveTerminal('copy')
+  },
+  {
+    id: 'paste',
+    label: 'Pegar',
+    win: 'Ctrl+Shift+V',
+    mac: 'Cmd+V',
+    icon: ClipboardPaste,
+    run: onActiveTerminal('paste')
+  },
+  {
+    id: 'close',
+    label: 'Cerrar sesión',
+    win: 'Ctrl+Shift+W',
+    mac: 'Cmd+W',
+    icon: X,
+    danger: true,
+    run: () => closeActive(isMac ? 'Cmd+W' : 'Ctrl+Shift+W')
+  },
+  // Ctrl+1…9: ir a la sesión en esa posición de la barra lateral.
+  ...Array.from({ length: 9 }, (_, i) => ({
+    id: `goto-${i + 1}`,
+    label: `Ir a la sesión ${i + 1}`,
+    win: `Ctrl+${i + 1}`,
+    mac: `Cmd+${i + 1}`,
+    run: () => selectByIndex(i),
+    inPalette: false
+  }))
+]
+
+export const keysOf = (s: Shortcut): string => (isMac ? s.mac : s.win)
+export const shortcutKeys = (id: string): string => keysOf(SHORTCUTS.find((s) => s.id === id)!)
+
+const byCombo = new Map(SHORTCUTS.map((s) => [keysOf(s), s]))
+
+// En fase de captura: el atajo se resuelve antes de que xterm vea la tecla.
+export function installShortcuts(): () => void {
+  const onKey = (e: KeyboardEvent): void => {
+    const shortcut = byCombo.get(comboOf(e))
+    if (!shortcut) return
+    // En un campo de texto (no el de xterm), copiar, pegar y buscar son los del propio campo.
+    const target = e.target as HTMLElement | null
+    const inField = !!target?.matches('input, textarea') && !target.closest('.xterm')
+    if (inField && ['copy', 'paste', 'find'].includes(shortcut.id)) return
+    e.preventDefault()
+    e.stopPropagation()
+    shortcut.run()
+  }
+  window.addEventListener('keydown', onKey, true)
+  return () => window.removeEventListener('keydown', onKey, true)
+}

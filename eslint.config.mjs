@@ -33,5 +33,10 @@ export default defineConfig(
     files: ['**/*.mjs', 'src/renderer/src/components/ui/**'],
     rules: { '@typescript-eslint/explicit-function-return-type': 'off' }
   },
+  {
+    // shadcn exporta variantes de estilo junto al componente (button); es código de terceros.
+    files: ['src/renderer/src/components/ui/**'],
+    rules: { 'react-refresh/only-export-components': 'off' }
+  },
   eslintConfigPrettier
 )
