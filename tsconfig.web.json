@@ -16,5 +16,8 @@
         "src/renderer/src/*"
       ]
     }
-  }
+  },
+  "exclude": [
+    "src/**/*.check.mts"
+  ]
 }

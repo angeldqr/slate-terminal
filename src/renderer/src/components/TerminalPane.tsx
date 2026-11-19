@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react'
-import { cn } from '@renderer/lib/utils'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
@@ -35,13 +34,12 @@ const theme = {
   brightWhite: '#edeeef'
 }
 
-// Todas las sesiones quedan montadas para no perder su pantalla; solo la activa se ve.
 export function TerminalPane({
   sessionId,
-  active
+  focused
 }: {
   sessionId: string
-  active: boolean
+  focused: boolean
 }): React.JSX.Element {
   const host = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
@@ -74,10 +72,14 @@ export function TerminalPane({
     }
 
     const { sessions } = window.slate
+    // xterm se ajusta al instante; el proceso se entera cuando el tamaño se calma, así una
+    // interfaz como Claude Code no se redibuja en cada frame mientras se arrastra un divisor.
+    let settle: ReturnType<typeof setTimeout> | undefined
     const resize = (): void => {
       if (!host.current?.offsetWidth) return // oculta: xterm no puede medir
       fit.fit()
-      sessions.resize(sessionId, term.cols, term.rows)
+      clearTimeout(settle)
+      settle = setTimeout(() => sessions.resize(sessionId, term.cols, term.rows), 80)
     }
 
     // Primero lo que ya imprimió y después lo nuevo: IPC entrega en orden, así no se duplica nada.
@@ -97,6 +99,7 @@ export function TerminalPane({
 
     return () => {
       alive = false
+      clearTimeout(settle)
       observer.disconnect()
       offData()
       input.dispose()
@@ -106,8 +109,8 @@ export function TerminalPane({
   }, [sessionId])
 
   useEffect(() => {
-    if (active) requestAnimationFrame(() => termRef.current?.focus())
-  }, [active])
+    if (focused) requestAnimationFrame(() => termRef.current?.focus())
+  }, [focused])
 
-  return <div ref={host} className={cn('h-full w-full', !active && 'hidden')} />
+  return <div ref={host} className="h-full w-full" />
 }

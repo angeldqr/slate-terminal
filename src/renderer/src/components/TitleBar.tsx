@@ -21,7 +21,7 @@ function WinButton({
       onClick={onClick}
       aria-label={label}
       className={cn(
-        'no-drag grid h-9 w-11 place-items-center text-muted-foreground transition-colors duration-100',
+        'no-drag grid h-9 w-11 place-items-center text-muted-foreground transition-colors duration-120',
         danger
           ? 'hover:bg-destructive hover:text-destructive-foreground'
           : 'hover:bg-accent hover:text-foreground'
@@ -47,7 +47,7 @@ export function TitleBar(): React.JSX.Element {
       <button
         onClick={toggleSidebar}
         aria-label="Mostrar u ocultar la barra lateral"
-        className="no-drag ml-2 grid size-7 place-items-center rounded-sm text-muted-foreground transition-colors duration-100 hover:bg-accent hover:text-foreground"
+        className="no-drag ml-2 grid size-7 place-items-center rounded-sm text-muted-foreground transition-colors duration-120 hover:bg-accent hover:text-foreground"
       >
         <PanelLeft size={16} strokeWidth={1.6} />
       </button>

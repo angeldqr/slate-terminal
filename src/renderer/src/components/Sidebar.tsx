@@ -4,13 +4,18 @@ import { cn } from '@renderer/lib/utils'
 import {
   addFolder,
   closeSession,
+  isShared,
+  moveToOwnView,
   newSession,
+  placeBeside,
   removeFolder,
   renameSession,
   samePath,
   selectSession,
+  splitSession,
   toggleFolder,
   useStore,
+  viewOf,
   type Project,
   type Session
 } from '@renderer/store'
@@ -21,6 +26,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from '@renderer/components/ui/context-menu'
+import { SessionIcon } from '@renderer/components/SessionIcon'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,7 +36,7 @@ import {
 } from '@renderer/components/ui/dropdown-menu'
 
 const rowClass =
-  'relative flex h-7 w-full items-center gap-2 rounded-sm px-2 text-left transition-colors duration-100 hover:bg-accent/40'
+  'relative flex h-7 w-full items-center gap-2 rounded-sm px-2 text-left transition-colors duration-120 hover:bg-accent/40'
 
 // Las mismas opciones sirven al botón "+" y al clic derecho de la carpeta.
 function NewSessionItems({
@@ -93,7 +99,9 @@ function SessionRow({ session, active }: { session: Session; active: boolean }):
   const [editing, setEditing] = useState<false | 'direct' | 'menu'>(false)
   const input = useRef<HTMLInputElement>(null)
   const cancelled = useRef(false)
-  const Icon = session.kind === 'shell' ? SquareTerminal : Bot
+  const shared = useStore((s) => isShared(s, session.id))
+  // Solo tiene sentido traerla junto al panel activo si está en otra vista.
+  const elsewhere = useStore((s) => !!s.activeId && viewOf(s, s.activeId) !== viewOf(s, session.id))
 
   const finishRename = (value: string): void => {
     if (!cancelled.current) renameSession(session.id, value)
@@ -117,7 +125,7 @@ function SessionRow({ session, active }: { session: Session; active: boolean }):
           )}
         >
           <span className="chalk" />
-          <Icon size={14} strokeWidth={1.6} className="shrink-0 text-muted-foreground" />
+          <SessionIcon kind={session.kind} />
           {editing ? (
             <input
               ref={input}
@@ -148,6 +156,28 @@ function SessionRow({ session, active }: { session: Session; active: boolean }):
       >
         <ContextMenuItem onSelect={() => setEditing('menu')}>Renombrar</ContextMenuItem>
         <ContextMenuSeparator />
+        {elsewhere && (
+          <>
+            <ContextMenuItem onSelect={() => placeBeside(session.id, 'row')}>
+              Abrir a la derecha del panel actual
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => placeBeside(session.id, 'col')}>
+              Abrir debajo del panel actual
+            </ContextMenuItem>
+          </>
+        )}
+        <ContextMenuItem onSelect={() => splitSession(session.id, 'row')}>
+          Dividir a la derecha con una shell nueva
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => splitSession(session.id, 'col')}>
+          Dividir abajo con una shell nueva
+        </ContextMenuItem>
+        {shared && (
+          <ContextMenuItem onSelect={() => moveToOwnView(session.id)}>
+            Mover a su propia vista
+          </ContextMenuItem>
+        )}
+        <ContextMenuSeparator />
         <DangerItem
           label="Cerrar"
           ask={session.status === 'working' ? 'Está trabajando. ¿Cerrar?' : undefined}
@@ -158,13 +188,27 @@ function SessionRow({ session, active }: { session: Session; active: boolean }):
   )
 }
 
+// Las sesiones que comparten vista van juntas dentro de un recuadro, en el orden en que aparecen.
 function SessionList({ sessions }: { sessions: Session[] }): React.JSX.Element {
   const activeId = useStore((s) => s.activeId)
+  const viewIds = useStore((s) => sessions.map((x) => viewOf(s, x.id)?.id ?? x.id))
+  const groups = new Map<string, Session[]>()
+  sessions.forEach((s, i) => groups.set(viewIds[i], [...(groups.get(viewIds[i]) ?? []), s]))
+
   return (
     <>
-      {sessions.map((s) => (
-        <SessionRow key={s.id} session={s} active={s.id === activeId} />
-      ))}
+      {[...groups].map(([viewId, members]) => {
+        const rows = members.map((s) => (
+          <SessionRow key={s.id} session={s} active={s.id === activeId} />
+        ))
+        return members.length > 1 ? (
+          <div key={viewId} className="space-y-0.5 rounded-md border border-border p-0.5">
+            {rows}
+          </div>
+        ) : (
+          rows
+        )
+      })}
     </>
   )
 }
@@ -198,7 +242,7 @@ function FolderGroup({ project }: { project: Project }): React.JSX.Element {
               <DropdownMenuTrigger
                 onClick={(e) => e.stopPropagation()}
                 aria-label={`Nueva sesión en ${project.name}`}
-                className="ml-auto grid size-5 place-items-center rounded-sm opacity-0 transition-opacity duration-100 group-hover:opacity-100 hover:bg-accent focus-visible:opacity-100 data-[state=open]:opacity-100"
+                className="ml-auto grid size-5 place-items-center rounded-sm opacity-0 transition-opacity duration-120 group-hover:opacity-100 hover:bg-accent focus-visible:opacity-100 data-[state=open]:opacity-100"
               >
                 <Plus size={14} strokeWidth={1.8} />
               </DropdownMenuTrigger>

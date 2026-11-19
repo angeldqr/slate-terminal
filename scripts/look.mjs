@@ -29,6 +29,65 @@ await win.waitForTimeout(1500) // la shell tarda en pintar el prompt
 await shot('shell')
 console.log('· shell abierta')
 
+// Paneles: dividir a la derecha desde el menú y abajo desde la cabecera del panel nuevo.
+const visibleTerminals = () => win.locator('.xterm-screen:visible').count()
+// Marca el nodo del primer terminal: si dividir o cerrar lo recreara, la marca desaparecería.
+await win.evaluate(() => (document.querySelector('.xterm').dataset.marca = 'original'))
+await win.locator('[data-status]').filter({ hasText: 'Shell' }).click({ button: 'right' })
+await win.getByRole('menuitem', { name: 'Dividir a la derecha' }).click()
+await win.getByRole('button', { name: 'Dividir abajo' }).nth(1).click()
+await win.waitForFunction(() => document.querySelectorAll('.xterm-screen').length === 3)
+assert.equal(await visibleTerminals(), 3, 'tres paneles visibles')
+assert.equal(
+  await win.locator('nav .rounded-md.border [data-status]').count(),
+  3,
+  'la barra lateral agrupa las tres sesiones de la vista'
+)
+console.log('· dividir: derecha y abajo')
+
+// Arrastrar el divisor vertical cambia el reparto del espacio.
+const divider = win.locator('[role="separator"][aria-orientation="vertical"]')
+const before = (await win.locator('.xterm-screen').first().boundingBox()).width
+const box = await divider.boundingBox()
+// A un cuarto de altura: en el medio se cruza con el divisor horizontal de la derecha.
+await win.mouse.move(box.x, box.y + box.height / 4)
+await win.mouse.down()
+await win.mouse.move(box.x - 200, box.y + box.height / 4, { steps: 5 })
+await win.mouse.up()
+await win.waitForTimeout(200)
+const after = (await win.locator('.xterm-screen').first().boundingBox()).width
+assert.ok(after < before - 100, `el divisor redimensiona (${before} → ${after})`)
+await win.waitForTimeout(800) // las shells nuevas pintan su prompt
+await shot('split')
+console.log('· divisor arrastrable')
+
+// Con el teclado: la flecha a la derecha agranda el panel izquierdo.
+const valueBefore = Number(await divider.getAttribute('aria-valuenow'))
+await divider.focus()
+await win.keyboard.press('ArrowRight')
+assert.equal(
+  Number(await divider.getAttribute('aria-valuenow')),
+  valueBefore + 5,
+  'el divisor se mueve con flechas'
+)
+console.log('· divisor con teclado')
+
+// Cerrar desde la cabecera colapsa la división hasta volver a un solo panel.
+await win.getByRole('button', { name: 'Cerrar sesión' }).last().click()
+await win.getByRole('button', { name: 'Cerrar sesión' }).last().click()
+await win.waitForFunction(() => document.querySelectorAll('.xterm-screen').length === 1)
+assert.equal(
+  await win.getByRole('button', { name: 'Cerrar sesión' }).count(),
+  0,
+  'un solo panel sin cabecera'
+)
+assert.equal(
+  await win.locator('[data-marca="original"]').count(),
+  1,
+  'el primer terminal nunca se recreó'
+)
+console.log('· cerrar paneles colapsa la división')
+
 // Clic derecho en la carpeta → Claude Code, como lo haría el usuario.
 await win.getByText(basename(repo), { exact: true }).click({ button: 'right' })
 await win.waitForTimeout(250) // deja terminar el fundido de entrada

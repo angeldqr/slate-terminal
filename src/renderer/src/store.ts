@@ -1,18 +1,39 @@
 import { useRef, useSyncExternalStore } from 'react'
 import type { Agent, SessionInfo, SessionKind } from '../../shared/types'
+import {
+  leaves,
+  pane,
+  remove,
+  setRatio,
+  sibling,
+  split,
+  type Dir,
+  type Layout,
+  type Path
+} from './layout'
 
 export type Project = { path: string; name: string; open: boolean }
 export type Session = SessionInfo & { unread: boolean }
+// Una vista es lo que llena el área del terminal: una sesión sola o varias divididas.
+export type View = { id: string; layout: Layout }
 
 type State = {
   projects: Project[]
   sessions: Session[]
+  views: View[]
   agents: Agent[]
   activeId: string | null
   sidebar: boolean
 }
 
-let state: State = { projects: [], sessions: [], agents: [], activeId: null, sidebar: true }
+let state: State = {
+  projects: [],
+  sessions: [],
+  views: [],
+  agents: [],
+  activeId: null,
+  sidebar: true
+}
 const listeners = new Set<() => void>()
 
 function setState(patch: Partial<State>): void {
@@ -59,6 +80,20 @@ const saveProjects = (projects: Project[]): void => {
 const patchSession = (id: string, patch: Partial<Session>): void =>
   setState({ sessions: state.sessions.map((s) => (s.id === id ? { ...s, ...patch } : s)) })
 
+export const viewOf = (s: State, sessionId: string | null): View | undefined =>
+  s.views.find((v) => sessionId && leaves(v.layout).includes(sessionId))
+
+// La sesión comparte su vista con otras (está en una división).
+export const isShared = (s: State, sessionId: string): boolean =>
+  leaves(viewOf(s, sessionId)?.layout ?? pane(sessionId)).length > 1
+
+const patchView = (viewId: string, change: (layout: Layout) => Layout): View[] =>
+  state.views.map((v) => (v.id === viewId ? { ...v, layout: change(v.layout) } : v))
+
+const newView = (sessionId: string): View => ({ id: crypto.randomUUID(), layout: pane(sessionId) })
+
+// ponytail: la disposición de las vistas no se guarda; al recargar cada sesión vuelve a su propia
+// vista. Se guarda cuando el host mantenga las sesiones vivas entre reinicios (roadmap).
 // Carga inicial: carpetas guardadas, agentes instalados y las sesiones que siguen vivas en main.
 export async function init(): Promise<void> {
   const [projects, agents, sessions] = await Promise.all([
@@ -70,14 +105,17 @@ export async function init(): Promise<void> {
     projects,
     agents,
     sessions: sessions.map((s) => ({ ...s, unread: false })),
+    views: sessions.map((s) => newView(s.id)),
     activeId: sessions[0]?.id ?? null
   })
 
   const off = slate.sessions.onStatus((id, status) => {
-    // "Sin leer" solo marca un "terminó" fuera de la vista; cualquier otro estado lo reemplaza,
-    // así el ámbar de "te necesita" y el rojo de error nunca quedan tapados por el azul.
+    // "Sin leer" solo marca un "terminó" fuera de la vista activa; cualquier otro estado lo
+    // reemplaza, así el ámbar de "te necesita" y el rojo de error nunca quedan tapados por el azul.
     const current = state.sessions.find((s) => s.id === id)
-    const unread = status === 'done' && (!!current?.unread || id !== state.activeId)
+    if (!current) return // aún no llegó al store; newSession la añade con su estado
+    const visible = viewOf(state, state.activeId) === viewOf(state, id)
+    const unread = status === 'done' && (current.unread || !visible)
     patchSession(id, { status, unread })
   })
   import.meta.hot?.dispose(off)
@@ -98,26 +136,86 @@ export function removeFolder(path: string): void {
 export const toggleFolder = (path: string): void =>
   saveProjects(state.projects.map((p) => (samePath(p.path, path) ? { ...p, open: !p.open } : p)))
 
-export async function newSession(cwd: string, kind: SessionKind = 'shell'): Promise<void> {
-  const info = await slate.sessions.create(cwd, kind)
-  setState({ sessions: [...state.sessions, { ...info, unread: false }], activeId: info.id })
+// Con `beside`, la sesión nueva se abre junto a esa sesión (a la derecha o abajo) en su vista.
+export async function newSession(
+  cwd: string,
+  kind: SessionKind = 'shell',
+  beside?: { id: string; dir: Dir }
+): Promise<void> {
+  let info: SessionInfo
+  try {
+    info = await slate.sessions.create(cwd, kind)
+  } catch (err) {
+    console.error('No se pudo abrir la sesión:', err)
+    return
+  }
+  const targetView = beside && viewOf(state, beside.id)
+  setState({
+    sessions: [...state.sessions, { ...info, unread: false }],
+    views: targetView
+      ? patchView(targetView.id, (layout) => split(layout, beside.id, info.id, beside.dir))
+      : [...state.views, newView(info.id)],
+    activeId: info.id
+  })
   const project = state.projects.find((p) => samePath(p.path, cwd))
   if (project && !project.open) toggleFolder(cwd)
 }
 
+// Al mostrar una vista, todas sus sesiones quedan vistas, no solo la que recibe el foco.
 export function selectSession(id: string): void {
-  setState({ activeId: id })
-  patchSession(id, { unread: false })
+  const shown = leaves(viewOf(state, id)?.layout ?? pane(id))
+  setState({
+    activeId: id,
+    sessions: state.sessions.map((s) => (shown.includes(s.id) ? { ...s, unread: false } : s))
+  })
 }
+
+// Saca una sesión de su vista; si la vista queda vacía, desaparece.
+const detach = (views: View[], id: string): View[] =>
+  views.flatMap((v) => {
+    const layout = remove(v.layout, id)
+    return layout ? [{ ...v, layout }] : []
+  })
 
 export function closeSession(id: string): void {
   slate.sessions.close(id)
-  const rest = state.sessions.filter((s) => s.id !== id)
+  const view = viewOf(state, id)
+  const views = detach(state.views, id)
+  // Al cerrar la activa, el foco pasa a su vecina en la vista; si no queda ninguna, a la última sesión.
+  const neighbour = view && sibling(view.layout, id)
+  const sessions = state.sessions.filter((s) => s.id !== id)
   setState({
-    sessions: rest,
-    activeId: state.activeId === id ? (rest.at(-1)?.id ?? null) : state.activeId
+    sessions,
+    views,
+    activeId: state.activeId === id ? (neighbour ?? sessions.at(-1)?.id ?? null) : state.activeId
   })
 }
+
+// Abre una shell nueva junto a esta sesión, en su misma carpeta.
+export function splitSession(id: string, dir: Dir): void {
+  const session = state.sessions.find((s) => s.id === id)
+  if (session) newSession(session.cwd, 'shell', { id, dir })
+}
+
+// Trae una sesión que ya existe junto al panel activo, sacándola de su vista.
+export function placeBeside(id: string, dir: Dir): void {
+  const target = state.activeId
+  if (!target || target === id) return
+  const views = detach(state.views, id)
+  setState({
+    views: views.map((v) =>
+      leaves(v.layout).includes(target) ? { ...v, layout: split(v.layout, target, id, dir) } : v
+    ),
+    activeId: id
+  })
+}
+
+export function moveToOwnView(id: string): void {
+  setState({ views: [...detach(state.views, id), newView(id)], activeId: id })
+}
+
+export const resizeSplit = (viewId: string, path: Path, ratio: number): void =>
+  setState({ views: patchView(viewId, (layout) => setRatio(layout, path, ratio)) })
 
 export function renameSession(id: string, title: string): void {
   if (!title.trim()) return
