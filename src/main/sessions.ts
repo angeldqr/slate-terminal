@@ -5,6 +5,7 @@ import { AGENTS } from './agents'
 import { nextStatus, type StatusEvent } from './status'
 import type { SessionInfo, SessionKind } from '../shared/types'
 import { writeHookSettings, removeHookSettings } from './hooks'
+import { freeTitle, samePath } from './titles'
 
 type Session = SessionInfo & { pty: pty.IPty; buffer: string; quiet?: NodeJS.Timeout }
 
@@ -74,7 +75,10 @@ export function createSession(cwd: string, kind: SessionKind = 'shell'): Session
     id,
     cwd,
     kind,
-    title: agent?.name ?? 'Shell',
+    title: freeTitle(
+      agent?.name ?? 'Shell',
+      [...sessions.values()].filter((x) => samePath(x.cwd, cwd)).map((x) => x.title)
+    ),
     status: 'idle',
     hooked,
     pty: proc,

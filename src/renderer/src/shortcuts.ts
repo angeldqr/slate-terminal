@@ -1,17 +1,17 @@
 import {
-  ArrowLeftRight,
-  Bell,
-  ClipboardPaste,
-  Columns2,
-  Copy,
-  PanelLeft,
-  Plus,
-  Rows2,
-  Search,
-  SquareTerminal,
-  X,
-  type LucideIcon
-} from 'lucide-react'
+  ArrowsLeftRightIcon,
+  BellSimpleIcon,
+  ClipboardTextIcon,
+  SquareSplitHorizontalIcon,
+  CopySimpleIcon,
+  SidebarSimpleIcon,
+  PlusIcon,
+  SquareSplitVerticalIcon,
+  MagnifyingGlassIcon,
+  TerminalWindowIcon,
+  XIcon,
+  type Icon
+} from '@phosphor-icons/react'
 import { comboOf } from './keys'
 import {
   closeActive,
@@ -38,7 +38,7 @@ export type Shortcut = {
   win: string
   mac: string
   run: () => void
-  icon?: LucideIcon
+  icon?: Icon
   danger?: boolean // destructiva: va al final de la paleta y en rojo
   inPalette?: boolean // false: no aparece como acción en la paleta
 }
@@ -63,7 +63,7 @@ export const SHORTCUTS: Shortcut[] = [
     label: 'Nueva shell',
     win: 'Ctrl+Shift+T',
     mac: 'Cmd+T',
-    icon: SquareTerminal,
+    icon: TerminalWindowIcon,
     run: () => {
       const folder = currentFolder(getState())
       if (folder) newSession(folder)
@@ -75,7 +75,7 @@ export const SHORTCUTS: Shortcut[] = [
     label: 'Nueva sesión…',
     win: 'Ctrl+Shift+N',
     mac: 'Cmd+N',
-    icon: Plus,
+    icon: PlusIcon,
     run: openNewSessionMenu
   },
   {
@@ -83,7 +83,7 @@ export const SHORTCUTS: Shortcut[] = [
     label: 'Dividir a la derecha',
     win: 'Ctrl+Shift+D',
     mac: 'Cmd+D',
-    icon: Columns2,
+    icon: SquareSplitHorizontalIcon,
     run: () => active() && splitSession(active()!, 'row')
   },
   {
@@ -91,7 +91,7 @@ export const SHORTCUTS: Shortcut[] = [
     label: 'Dividir abajo',
     win: 'Ctrl+Shift+E',
     mac: 'Cmd+Shift+D',
-    icon: Rows2,
+    icon: SquareSplitVerticalIcon,
     run: () => active() && splitSession(active()!, 'col')
   },
   {
@@ -99,7 +99,7 @@ export const SHORTCUTS: Shortcut[] = [
     label: 'Buscar en el terminal',
     win: 'Ctrl+Shift+F',
     mac: 'Cmd+F',
-    icon: Search,
+    icon: MagnifyingGlassIcon,
     run: onActiveTerminal('find')
   },
   {
@@ -107,7 +107,7 @@ export const SHORTCUTS: Shortcut[] = [
     label: 'Siguiente sesión que te necesita',
     win: 'Ctrl+Shift+J',
     mac: 'Cmd+J',
-    icon: Bell,
+    icon: BellSimpleIcon,
     run: nextNeedingYou
   },
   {
@@ -115,7 +115,7 @@ export const SHORTCUTS: Shortcut[] = [
     label: 'Vista siguiente',
     win: 'Ctrl+Tab',
     mac: 'Ctrl+Tab',
-    icon: ArrowLeftRight,
+    icon: ArrowsLeftRightIcon,
     run: () => cycleView(1)
   },
   {
@@ -123,7 +123,7 @@ export const SHORTCUTS: Shortcut[] = [
     label: 'Vista anterior',
     win: 'Ctrl+Shift+Tab',
     mac: 'Ctrl+Shift+Tab',
-    icon: ArrowLeftRight,
+    icon: ArrowsLeftRightIcon,
     run: () => cycleView(-1)
   },
   {
@@ -131,7 +131,7 @@ export const SHORTCUTS: Shortcut[] = [
     label: 'Mostrar u ocultar la barra lateral',
     win: 'Ctrl+Shift+B',
     mac: 'Cmd+B',
-    icon: PanelLeft,
+    icon: SidebarSimpleIcon,
     run: toggleSidebar
   },
   {
@@ -139,7 +139,7 @@ export const SHORTCUTS: Shortcut[] = [
     label: 'Copiar selección',
     win: 'Ctrl+Shift+C',
     mac: 'Cmd+C',
-    icon: Copy,
+    icon: CopySimpleIcon,
     run: onActiveTerminal('copy')
   },
   {
@@ -147,7 +147,7 @@ export const SHORTCUTS: Shortcut[] = [
     label: 'Pegar',
     win: 'Ctrl+Shift+V',
     mac: 'Cmd+V',
-    icon: ClipboardPaste,
+    icon: ClipboardTextIcon,
     run: onActiveTerminal('paste')
   },
   {
@@ -155,7 +155,7 @@ export const SHORTCUTS: Shortcut[] = [
     label: 'Cerrar sesión',
     win: 'Ctrl+Shift+W',
     mac: 'Cmd+W',
-    icon: X,
+    icon: XIcon,
     danger: true,
     run: () => closeActive(isMac ? 'Cmd+W' : 'Ctrl+Shift+W')
   },

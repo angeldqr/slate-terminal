@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, ChevronUp, X } from 'lucide-react'
+import { CaretDownIcon, CaretUpIcon, XIcon } from '@phosphor-icons/react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
@@ -199,17 +199,17 @@ function FindBar({
         aria-label="Anterior"
         onClick={() => query && onFind(query, true)}
       >
-        <ChevronUp size={14} strokeWidth={1.6} />
+        <CaretUpIcon size={14} />
       </button>
       <button
         className={findButton}
         aria-label="Siguiente"
         onClick={() => query && onFind(query, false)}
       >
-        <ChevronDown size={14} strokeWidth={1.6} />
+        <CaretDownIcon size={14} />
       </button>
       <button className={findButton} aria-label="Cerrar búsqueda" onClick={onClose}>
-        <X size={14} strokeWidth={1.6} />
+        <XIcon size={14} />
       </button>
     </div>
   )

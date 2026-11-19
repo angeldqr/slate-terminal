@@ -6,11 +6,16 @@ import { createBlendy, type Blendy } from 'blendy'
 let blendy: Blendy | null = null
 const open = new Set<string>()
 
-const reducedMotion = (): boolean => matchMedia('(prefers-reduced-motion: reduce)').matches
+export const reducedMotion = (): boolean => matchMedia('(prefers-reduced-motion: reduce)').matches
 
-// Sin botón visible no hay de dónde salir (p. ej. con la barra lateral plegada): se abre sin morph.
-const sourceVisible = (id: string): boolean =>
-  !!document.querySelector<HTMLElement>(`[data-blendy-from="${id}"]`)?.offsetWidth
+// Sin botón visible no hay de dónde salir: barra lateral plegada (0 px) o barra superior
+// escondida (opacidad 0). Entonces se abre sin morph.
+const sourceVisible = (id: string): boolean => {
+  const el = document.querySelector<HTMLElement>(`[data-blendy-from="${id}"]`)
+  return (
+    !!el?.offsetWidth && el.checkVisibility({ opacityProperty: true, visibilityProperty: true })
+  )
+}
 
 // Se crea cuando los botones de origen ya están en el DOM.
 export function initMotion(): void {

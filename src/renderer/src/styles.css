@@ -19,6 +19,9 @@
   --attention: #f0b429;
   --unread: #7aa2d6;
   --destructive: #e5534b;
+  /* Elevaciones: la tarjeta del terminal y la barra superior abierta. */
+  --elevation-card: 0 0 0 1px var(--border), 0 10px 40px -20px rgb(0 0 0 / 0.8);
+  --elevation-bar: 0 1px 0 var(--border), 0 12px 32px -12px rgb(0 0 0 / 0.6);
 }
 
 :root[data-theme='light'] {
@@ -33,6 +36,8 @@
   --attention: #b7791f;
   --unread: #3b6db3;
   --destructive: #c4382f;
+  --elevation-card: 0 0 0 1px var(--border), 0 10px 40px -24px rgb(0 0 0 / 0.18);
+  --elevation-bar: 0 1px 0 var(--border), 0 12px 32px -16px rgb(0 0 0 / 0.12);
 }
 
 @theme inline {
@@ -46,6 +51,7 @@
   --color-border: var(--border);
   --color-input: var(--border);
   --color-ring: var(--muted-foreground);
+  --color-muted: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: #ffffff;

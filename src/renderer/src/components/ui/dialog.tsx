@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { cn } from 'cn'
-import { XIcon } from 'lucide-react'
+import { XIcon } from '@phosphor-icons/react'
 import { Dialog as DialogPrimitive } from 'radix-ui'
 
 import { Button } from '@renderer/components/ui/button'

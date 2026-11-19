@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Bot, ChevronRight, Plus, SquareTerminal } from 'lucide-react'
+import { CaretRightIcon, PlusIcon, TerminalWindowIcon } from '@phosphor-icons/react'
 import { cn } from '@renderer/lib/utils'
 import {
   closeSession,
@@ -53,12 +53,12 @@ function NewSessionItems({
   return (
     <>
       <Item onSelect={() => newSession(path)}>
-        <SquareTerminal /> Nueva shell
+        <TerminalWindowIcon /> Nueva shell
       </Item>
       {agents.length > 0 && <Separator />}
       {agents.map((a) => (
         <Item key={a.id} onSelect={() => newSession(path, a.id)}>
-          <Bot /> {a.name}
+          <SessionIcon kind={a.id} /> {a.name}
         </Item>
       ))}
     </>
@@ -226,9 +226,8 @@ function FolderGroup({ project }: { project: Project }): React.JSX.Element {
             )}
             onClick={() => toggleFolder(project.path)}
           >
-            <ChevronRight
+            <CaretRightIcon
               size={14}
-              strokeWidth={1.8}
               className={cn(
                 'shrink-0 transition-transform duration-150',
                 project.open && 'rotate-90'
@@ -243,7 +242,7 @@ function FolderGroup({ project }: { project: Project }): React.JSX.Element {
                 aria-label={`Nueva sesión en ${project.name}`}
                 className="ml-auto grid size-5 place-items-center rounded-sm opacity-0 transition-opacity duration-120 group-hover:opacity-100 hover:bg-accent focus-visible:opacity-100 data-[state=open]:opacity-100"
               >
-                <Plus size={14} strokeWidth={1.8} />
+                <PlusIcon size={14} />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-52">
                 <NewSessionItems
@@ -298,6 +297,9 @@ function SidebarContent({ morphSource }: { morphSource: boolean }): React.JSX.El
   const projects = useStore((s) => s.projects)
   return (
     <>
+      <div className="flex h-9 shrink-0 items-center px-4 text-[13px] font-semibold tracking-tight">
+        Slate
+      </div>
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 pt-1">
         {projects.map((p) => (
           <FolderGroup key={p.path} project={p} />
@@ -312,7 +314,7 @@ function SidebarContent({ morphSource }: { morphSource: boolean }): React.JSX.El
           className={cn(rowClass, 'w-auto text-muted-foreground hover:text-foreground')}
         >
           <span className="flex items-center gap-2">
-            <Plus size={15} strokeWidth={1.6} /> Nueva sesión
+            <PlusIcon size={15} /> Nueva sesión
           </span>
         </button>
       </footer>
@@ -359,7 +361,7 @@ export function Sidebar(): React.JSX.Element {
         </div>
       </aside>
       {!open && (
-        <div aria-hidden className="fixed top-9 bottom-0 left-0 z-30 w-2" onMouseEnter={show} />
+        <div aria-hidden className="fixed top-2 bottom-0 left-0 z-30 w-2" onMouseEnter={show} />
       )}
       {!open && peek !== 'off' && (
         <aside
@@ -368,7 +370,7 @@ export function Sidebar(): React.JSX.Element {
           onMouseLeave={hide}
           style={{ animationFillMode: 'forwards' }}
           className={cn(
-            'fixed top-9 bottom-2 left-2 z-30 flex w-60 flex-col rounded-lg border border-border bg-sidebar/80 shadow-2xl backdrop-blur-xl backdrop-saturate-150',
+            'fixed top-2 bottom-2 left-2 z-30 flex w-60 flex-col rounded-lg border border-border bg-sidebar/80 shadow-2xl backdrop-blur-xl backdrop-saturate-150',
             peek === 'in'
               ? 'animate-in duration-200 ease-out-quint slide-in-from-left-full'
               : 'animate-out duration-160 ease-in slide-out-to-left-full'

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Columns2, Rows2, X } from 'lucide-react'
+import { SquareSplitHorizontalIcon, SquareSplitVerticalIcon, XIcon } from '@phosphor-icons/react'
 import { cn } from '@renderer/lib/utils'
 import { frames, type Box, type Divider as DividerFrame } from '@renderer/layout'
 import {
@@ -47,7 +47,7 @@ function PaneHeader({ id }: { id: string }): React.JSX.Element | null {
           title="Dividir a la derecha"
           onClick={() => splitSession(id, 'row')}
         >
-          <Columns2 size={14} strokeWidth={1.6} />
+          <SquareSplitHorizontalIcon size={14} />
         </button>
         <button
           className={iconButton}
@@ -55,7 +55,7 @@ function PaneHeader({ id }: { id: string }): React.JSX.Element | null {
           title="Dividir abajo"
           onClick={() => splitSession(id, 'col')}
         >
-          <Rows2 size={14} strokeWidth={1.6} />
+          <SquareSplitVerticalIcon size={14} />
         </button>
         {/* Cerrar un agente que trabaja pide un segundo clic, igual que en la barra lateral. */}
         <button
@@ -72,11 +72,7 @@ function PaneHeader({ id }: { id: string }): React.JSX.Element | null {
             closeSession(id)
           }}
         >
-          {asking ? (
-            <span className="text-[12px]">¿Cerrar?</span>
-          ) : (
-            <X size={14} strokeWidth={1.6} />
-          )}
+          {asking ? <span className="text-[12px]">¿Cerrar?</span> : <XIcon size={14} />}
         </button>
       </div>
     </header>

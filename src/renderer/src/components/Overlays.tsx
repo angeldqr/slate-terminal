@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Bot, FolderPlus, SquareTerminal } from 'lucide-react'
+import { FolderSimplePlusIcon, TerminalWindowIcon } from '@phosphor-icons/react'
 import {
   Command,
   CommandEmpty,
@@ -12,6 +12,7 @@ import {
 } from '@renderer/components/ui/command'
 import { cn } from '@renderer/lib/utils'
 import { SessionIcon } from './SessionIcon'
+import { Keys } from './Keys'
 import { closeOverlay } from '@renderer/overlays'
 import { keysOf, SHORTCUTS, shortcutKeys } from '@renderer/shortcuts'
 import {
@@ -44,8 +45,12 @@ function NewSessionGroup({
   return (
     <CommandGroup heading={`Nueva sesión en ${folderName(folder)}`}>
       <CommandItem value="nueva shell" onSelect={pick(() => newSession(folder))}>
-        <SquareTerminal /> Nueva shell
-        {withKeys && <CommandShortcut>{shortcutKeys('new-shell')}</CommandShortcut>}
+        <TerminalWindowIcon /> Nueva shell
+        {withKeys && (
+          <CommandShortcut>
+            <Keys combo={shortcutKeys('new-shell')} />
+          </CommandShortcut>
+        )}
       </CommandItem>
       {agents.map((a) => (
         <CommandItem
@@ -53,7 +58,7 @@ function NewSessionGroup({
           value={`nueva sesión ${a.name}`}
           onSelect={pick(() => newSession(folder, a.id))}
         >
-          <Bot /> {a.name}
+          <SessionIcon kind={a.id} /> {a.name}
         </CommandItem>
       ))}
     </CommandGroup>
@@ -62,7 +67,7 @@ function NewSessionGroup({
 
 const AddFolderItem = (): React.JSX.Element => (
   <CommandItem value="añadir carpeta" onSelect={pick(addFolder)}>
-    <FolderPlus /> Añadir carpeta
+    <FolderSimplePlusIcon /> Añadir carpeta
   </CommandItem>
 )
 
@@ -111,7 +116,7 @@ function Palette(): React.JSX.Element {
                 value={`carpeta ${p.name} ${p.path}`}
                 onSelect={pick(() => newSession(p.path))}
               >
-                <SquareTerminal /> Nueva shell en {p.name}
+                <TerminalWindowIcon /> Nueva shell en {p.name}
               </CommandItem>
             ))}
           </CommandGroup>
@@ -128,7 +133,9 @@ function Palette(): React.JSX.Element {
             >
               {a.icon && <a.icon className={cn(a.danger && 'text-destructive')} />}
               {a.label}
-              <CommandShortcut>{keysOf(a)}</CommandShortcut>
+              <CommandShortcut>
+                <Keys combo={keysOf(a)} />
+              </CommandShortcut>
             </CommandItem>
           ))}
         </CommandGroup>

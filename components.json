@@ -19,5 +19,5 @@
   "registries": {
     "@aceternity": "https://ui.aceternity.com/registry/{name}.json"
   },
-  "iconLibrary": "lucide"
+  "iconLibrary": "phosphor"
 }

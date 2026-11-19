@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { cn } from 'cn'
-import { CheckIcon, ChevronRightIcon, CircleIcon } from 'lucide-react'
+import { CheckIcon, CaretRightIcon, CircleIcon } from '@phosphor-icons/react'
 import { ContextMenu as ContextMenuPrimitive } from 'radix-ui'
 
 function ContextMenu({ ...props }: React.ComponentProps<typeof ContextMenuPrimitive.Root>) {
@@ -50,7 +50,7 @@ function ContextMenuSubTrigger({
       {...props}
     >
       {children}
-      <ChevronRightIcon className="ml-auto" />
+      <CaretRightIcon className="ml-auto" />
     </ContextMenuPrimitive.SubTrigger>
   )
 }

@@ -19,9 +19,27 @@ const win = await app.firstWindow()
 win.on('pageerror', (e) => console.error('renderer:', e.message))
 const shot = (name) => win.screenshot({ path: `.look/${name}.png` })
 
-await win.getByText('No hay ninguna sesión abierta').waitFor()
+await win.getByText(`Todo listo en ${basename(repo)}`).waitFor()
+await win.waitForTimeout(600) // deja que aparezcan los puntos del fondo
 await shot('vacio')
 console.log('· estado vacío')
+
+// Barra superior escondida: crece al acercar el puntero arriba y vuelve a esconderse al irse.
+const barHeight = () =>
+  win.evaluate(() => document.querySelector('header').getBoundingClientRect().height)
+assert.equal(await barHeight(), 8, 'escondida mide 8 px')
+await win.mouse.move(600, 300)
+await win.mouse.move(600, 3, { steps: 4 })
+await win.waitForFunction(
+  () => document.querySelector('header').getBoundingClientRect().height === 36
+)
+await win.waitForTimeout(250)
+await shot('barra-superior')
+await win.mouse.move(600, 400, { steps: 4 })
+await win.waitForFunction(
+  () => document.querySelector('header').getBoundingClientRect().height === 8
+)
+console.log('· la barra superior aparece y se esconde')
 
 await win.getByRole('button', { name: 'Nueva shell' }).click()
 await win.waitForSelector('.xterm-screen')
