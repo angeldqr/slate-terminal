@@ -12,6 +12,27 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 
 const data = resolve('.look/data')
 
+// Con --exe <ruta> se prueba un Slate empaquetado (asar, host desde slate.exe) en vez del compilado.
+const exeAt = process.argv.indexOf('--exe')
+const exe = exeAt > 0 ? resolve(process.argv[exeAt + 1]) : null
+// Justo tras cerrar, el Slate anterior puede no haber soltado aún el candado de instancia única:
+// el nuevo cede y se va sin ventana. Se reintenta.
+const launchApp = async () => {
+  for (let i = 0; ; i++) {
+    const a = await (exe
+      ? electron.launch({ executablePath: exe, args: [`--user-data-dir=${data}`] })
+      : electron.launch({ args: ['.', `--user-data-dir=${data}`] }))
+    try {
+      await a.firstWindow()
+      return a
+    } catch (err) {
+      await a.close().catch(() => {}) // si sigue vivo por otra causa, no se queda suelto
+      if (i === 2) throw err
+      await new Promise((r) => setTimeout(r, 1000))
+    }
+  }
+}
+
 // El host de sesiones de esta carpeta de datos (ver host-protocol.ts).
 const hostPipe = () => {
   const tag = createHash('sha256').update(data.toLowerCase()).digest('hex').slice(0, 16)
@@ -48,7 +69,7 @@ writeFileSync(
 // Sin mantener sesiones al salir: cada cierre deja el equipo limpio (la persistencia se prueba al final).
 writeFileSync(join(data, 'prefs.json'), JSON.stringify({ notify: false, keepAlive: false }))
 
-const app = await electron.launch({ args: ['.', `--user-data-dir=${data}`] })
+const app = await launchApp()
 const win = await app.firstWindow()
 win.on('pageerror', (e) => console.error('renderer:', e.message))
 const shot = (name) => win.screenshot({ path: `.look/${name}.png` })
@@ -437,6 +458,13 @@ assert.equal(saved.cursorStyle, 'block')
 assert.equal(saved.notify, false, 'conserva lo que ya había')
 console.log('· ajustes: tamaño y cursor en vivo y guardados')
 
+await win.getByRole('button', { name: 'Avanzado', exact: true }).click()
+await win.getByText(/^En marcha con \d+ terminal/).waitFor()
+await win.getByText(data, { exact: true }).waitFor() // la carpeta de datos
+await win.waitForTimeout(300)
+await shot('ajustes-avanzado')
+console.log('· ajustes: avanzado muestra el host en marcha y la carpeta de datos')
+
 await win.getByRole('button', { name: 'Apariencia', exact: true }).click()
 await win.getByRole('switch', { name: 'Barra superior fija' }).click()
 await win.keyboard.press('Escape')
@@ -514,7 +542,7 @@ writeFileSync(
   join(data, 'prefs.json'),
   JSON.stringify({ theme: 'light', notify: false, tray: true, keepAlive: false })
 )
-const again = await electron.launch({ args: ['.', `--user-data-dir=${data}`] })
+const again = await launchApp()
 const first = await again.firstWindow()
 await first.waitForLoadState('domcontentloaded')
 assert.equal(await first.evaluate(() => document.documentElement.dataset.theme), 'light')
@@ -683,7 +711,7 @@ const output = async (w, id, text) => {
 }
 writeFileSync(join(data, 'prefs.json'), JSON.stringify({ notify: false, keepAlive: true }))
 writeFileSync(join(data, 'layout.json'), 'null')
-const keep = await electron.launch({ args: ['.', `--user-data-dir=${data}`] })
+const keep = await launchApp()
 const kw = await keep.firstWindow()
 await kw.getByText('Todo listo en repo').waitFor()
 await kw.getByRole('button', { name: 'Nueva shell' }).click()
@@ -700,7 +728,7 @@ await kw.waitForTimeout(600) // la disposición se guarda cuando se calma
 await keep.close()
 assert.ok(await hostUp(), 'el host sigue vivo con Slate cerrado')
 
-const back = await electron.launch({ args: ['.', `--user-data-dir=${data}`] })
+const back = await launchApp()
 const bw = await back.firstWindow()
 await bw.getByText('Volvieron las 2 sesiones que seguían abiertas').waitFor({ timeout: 8000 })
 const returned = await bw.evaluate(() => window.slate.sessions.list())

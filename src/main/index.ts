@@ -19,7 +19,13 @@ import * as sessions from './sessions'
 import { currentBranch, repoRoot } from './git'
 import * as changes from './changes'
 import { handleMcp } from './mcp'
-import { HostVersionError, replaceHost, shutdownHost, startHost } from './host-client'
+import {
+  HostVersionError,
+  hostConnected,
+  replaceHost,
+  shutdownHost,
+  startHost
+} from './host-client'
 import type { Notice, SessionKind, SessionOpts } from '../shared/types'
 
 // Solo estos archivos se pueden leer o escribir desde el renderer.
@@ -195,6 +201,13 @@ function registerIpc(): void {
   })
 
   ipcMain.on('notify', (_, notice: Notice) => notify(notice))
+
+  // Ajustes › Avanzado.
+  ipcMain.handle('app:info', () => ({
+    dataDir: app.getPath('userData'),
+    host: hostConnected()
+  }))
+  ipcMain.handle('app:openData', () => shell.openPath(app.getPath('userData')))
 
   ipcMain.handle('dialog:pickFolder', async () => {
     const res = await dialog.showOpenDialog(win!, { properties: ['openDirectory'] })

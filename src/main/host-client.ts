@@ -16,7 +16,7 @@ import {
   type SpawnRequest
 } from './host-protocol'
 
-// El lado de Slate del host de sesiones (host.ts). Lo encuentra o lo lanza, y ofrece una
+// El lado de Slate del host de sesiones (host-server.ts). Lo encuentra o lo lanza, y ofrece una
 // "pty remota" con la misma forma que la de node-pty para que sessions.ts apenas cambie.
 
 const dataDir = app.getPath('userData')
@@ -101,6 +101,8 @@ const request = <T extends FromHost>(
     send(socket, msg(rid))
   })
 
+export const hostConnected = (): boolean => socket !== null
+
 const tryConnect = (): Promise<Socket | null> =>
   new Promise((done) => {
     const s = connect(pipe)
@@ -146,7 +148,7 @@ let stale: Socket | null = null
 // Detiene ese host viejo, con sus sesiones, y arranca uno de esta versión.
 export async function replaceHost(): Promise<void> {
   if (stale) send(stale, { t: 'shutdown' })
-  // Deja de escuchar en el acto (host.ts): en cuanto la tubería no responde, se lanza el nuevo.
+  // Deja de escuchar en el acto (host-server.ts): en cuanto la tubería no responde, se lanza el nuevo.
   for (let i = 0; i < 50; i++) {
     const probe = await tryConnect()
     if (!probe) break
@@ -170,7 +172,11 @@ export async function startHost(): Promise<void> {
     await new Promise((r) => setTimeout(r, 100))
     s = await tryConnect()
   }
-  if (!s) throw new Error('No se pudo arrancar el host de sesiones.')
+  if (!s) {
+    throw new Error(
+      `No se pudo arrancar el host de sesiones. Si dejó un error, está en ${join(dataDir, 'host.log')}`
+    )
+  }
   const ready = new Promise<void>((done, fail) => {
     readLines(s!, (raw) => {
       const msg = raw as FromHost

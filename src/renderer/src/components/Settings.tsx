@@ -6,6 +6,7 @@ import {
   KeyboardIcon,
   PaintBrushBroadIcon,
   TerminalWindowIcon,
+  WrenchIcon,
   XIcon,
   type Icon
 } from '@phosphor-icons/react'
@@ -28,8 +29,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Slider } from './ui/slider'
 import { Switch } from './ui/switch'
 import { Keys } from './Keys'
+import { version } from '../../../../package.json'
 
-type SectionId = 'appearance' | 'terminal' | 'notifications' | 'shortcuts'
+type SectionId = 'appearance' | 'terminal' | 'notifications' | 'shortcuts' | 'advanced'
 const SECTIONS: { id: SectionId; label: string; icon: Icon; description: string }[] = [
   {
     id: 'appearance',
@@ -54,6 +56,12 @@ const SECTIONS: { id: SectionId; label: string; icon: Icon; description: string 
     label: 'Atajos',
     icon: KeyboardIcon,
     description: 'Todo lo que se hace con el teclado.'
+  },
+  {
+    id: 'advanced',
+    label: 'Avanzado',
+    icon: WrenchIcon,
+    description: 'Lo que corre por debajo y dónde guarda Slate sus datos.'
   }
 ]
 
@@ -96,7 +104,7 @@ function Row({
   children
 }: {
   label: string
-  description?: string
+  description?: React.ReactNode
   children: React.ReactNode
 }): React.JSX.Element {
   return (
@@ -268,6 +276,10 @@ const CURSORS: { id: CursorStyle; label: string }[] = [
   { id: 'underline', label: 'Subrayado' }
 ]
 const SCROLLBACK = [1000, 5000, 10000, 50000]
+
+// El botón con borde de las filas (Enviar aviso, Abrir carpeta).
+const outlineButton =
+  'h-8 shrink-0 rounded-sm border border-border px-3 text-[12px] text-muted-foreground transition-colors duration-120 hover:border-muted-foreground/40 hover:text-foreground'
 
 // Escribe en `prefs` una clave concreta: así cada control se conecta en una línea.
 const setPref =
@@ -447,10 +459,7 @@ function Notifications(): React.JSX.Element {
           />
         </Row>
         <Row label="Probar" description="Muestra un aviso de ejemplo ahora.">
-          <button
-            onClick={testNotification}
-            className="h-8 rounded-sm border border-border px-3 text-[12px] text-muted-foreground transition-colors duration-120 hover:border-muted-foreground/40 hover:text-foreground"
-          >
+          <button onClick={testNotification} className={outlineButton}>
             Enviar aviso
           </button>
         </Row>
@@ -503,14 +512,74 @@ function Shortcuts(): React.JSX.Element {
   )
 }
 
+type AppInfo = Awaited<ReturnType<typeof window.slate.app.info>>
+
+function Advanced(): React.JSX.Element {
+  const count = useStore((s) => s.sessions.filter((x) => x.status !== 'exited').length)
+  const [info, setInfo] = useState<AppInfo | null>(null)
+  // Si el host se cae, sus sesiones terminan y la cuenta cambia: se vuelve a preguntar.
+  useEffect(() => void window.slate.app.info().then(setInfo), [count])
+  return (
+    <>
+      <Group title="Sesiones en segundo plano">
+        <Row
+          label="Host de sesiones"
+          description="El proceso que mantiene vivas las terminales mientras Slate está cerrado."
+        >
+          {info && (
+            <span className="flex shrink-0 items-center gap-2 text-[12px] text-muted-foreground">
+              <span
+                className={cn(
+                  'size-1.5 rounded-full',
+                  info.host ? 'animate-breathe bg-foreground' : 'bg-destructive'
+                )}
+              />
+              {!info.host
+                ? 'Sin conexión'
+                : count === 1
+                  ? 'En marcha con 1 terminal'
+                  : `En marcha con ${count} terminales`}
+            </span>
+          )}
+        </Row>
+      </Group>
+      <Group title="Datos">
+        <Row
+          label="Carpeta de datos"
+          description={
+            <>
+              Ajustes, proyectos y, si el host falló alguna vez, su registro en host.log.
+              {/* Se recorta por el principio: lo que distingue la ruta es su final. */}
+              <span className="mt-1 block truncate font-mono [direction:rtl]">
+                <bdi>{info?.dataDir}</bdi>
+              </span>
+            </>
+          }
+        >
+          <button
+            onClick={() =>
+              window.slate.app
+                .openData()
+                .then((err) => err && flashHint(`No se pudo abrir: ${err}`))
+            }
+            className={outlineButton}
+          >
+            Abrir carpeta
+          </button>
+        </Row>
+      </Group>
+    </>
+  )
+}
+
 const CONTENT: Record<SectionId, () => React.JSX.Element> = {
   appearance: Appearance,
   terminal: TerminalSection,
   notifications: Notifications,
-  shortcuts: Shortcuts
+  shortcuts: Shortcuts,
+  advanced: Advanced
 }
 
-// Restablecer pide un segundo clic; se olvida a los 3 s.
 // Pide un segundo clic: cierra agentes que pueden estar a medias. Se olvida a los 3 s.
 function StopAllButton(): React.JSX.Element {
   const count = useStore((s) => s.sessions.length)
@@ -626,6 +695,7 @@ export function Settings(): React.JSX.Element {
           </LayoutGroup>
           <div className="mt-auto">
             <ResetButton />
+            <p className="px-2.5 pt-1 pb-1.5 text-[12px] text-muted-foreground">Slate {version}</p>
           </div>
         </nav>
 

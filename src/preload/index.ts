@@ -58,6 +58,10 @@ const api = {
     write: (name: StoreName, data: unknown): Promise<void> =>
       ipcRenderer.invoke('store:write', name, data)
   },
+  app: {
+    info: (): Promise<{ dataDir: string; host: boolean }> => ipcRenderer.invoke('app:info'),
+    openData: (): Promise<string> => ipcRenderer.invoke('app:openData')
+  },
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:pickFolder'),
   notify: (notice: Notice): void => ipcRenderer.send('notify', notice),
   onNotifyClick: (fn: (id: string) => void) => on('notify:click', fn),
