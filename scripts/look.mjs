@@ -5,6 +5,8 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { execFileSync } from 'node:child_process'
 import { basename, join, resolve } from 'node:path'
 import assert from 'node:assert/strict'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 
 const data = resolve('.look/data')
 rmSync(data, { recursive: true, force: true })
@@ -261,6 +263,110 @@ await row
   .and(win.locator('[data-status="attention"][data-unread="false"]'))
   .waitFor({ timeout: 3000 })
 console.log('· el ámbar gana al azul de sin leer')
+
+// Orquestación: el MCP que Slate le da a Claude Code, usado con el cliente oficial del SDK.
+// Claude sigue quieto en su pregunta de confianza: nada de esto gasta tokens.
+const mcpConfig = JSON.parse(readFileSync(join(data, 'hooks', `${claude.id}.mcp.json`), 'utf8'))
+const mcpUrl = mcpConfig.mcpServers.slate.url
+const mcpAs = async (id) => {
+  const client = new Client({ name: 'look', version: '1.0.0' })
+  await client.connect(new StreamableHTTPClientTransport(new URL(mcpUrl.replace(claude.id, id))))
+  return client
+}
+const call = async (client, name, args = {}) => {
+  const res = await client.callTool({ name, arguments: args })
+  return { text: res.content[0].text, error: !!res.isError }
+}
+const asClaude = await mcpAs(claude.id)
+assert.deepEqual((await asClaude.listTools()).tools.map((t) => t.name).sort(), [
+  'get_changes',
+  'list_sessions',
+  'new_task',
+  'read_screen',
+  'report',
+  'send_to_session',
+  'wait_for_status'
+])
+assert.match(
+  (await call(asClaude, 'list_sessions')).text,
+  /title: Claude Code[\s\S]*\(you\)|\(you\)[\s\S]*title: Claude Code/
+)
+
+// new_task abre una shell (sin rama: este es el repo de Slate) que aparece en Slate con su aviso.
+const started = await call(asClaude, 'new_task', {
+  prompt: 'eco',
+  agents: ['shell'],
+  isolate: false
+})
+const childId = started.text.match(/id: (\S+)/)[1]
+const childTitle = started.text.match(/title: (.+)/)[1]
+await win.getByText(`Claude Code abrió ${childTitle}`).waitFor({ timeout: 5000 })
+await win.locator(`[data-status][title="Lanzada por Claude Code"]`).waitFor({ timeout: 5000 })
+
+// send_to_session escribe como una persona; read_screen ve lo que salió.
+assert.equal(
+  (await call(asClaude, 'send_to_session', { id: childId, text: 'echo hola-mcp' })).error,
+  false
+)
+let screen = ''
+for (let i = 0; i < 40 && !/^hola-mcp$/m.test(screen); i++) {
+  await win.waitForTimeout(150)
+  screen = (await call(asClaude, 'read_screen', { id: childId, lines: 20 })).text
+}
+assert.match(screen, /^hola-mcp$/m, 'la salida del comando se lee en texto plano')
+
+// Una sesión lanzada también puede lanzar; report le llega a quien la lanzó.
+const asChild = await mcpAs(childId)
+const grand = await call(asChild, 'new_task', {
+  prompt: 'echo inicio',
+  agents: ['shell'],
+  isolate: false
+})
+const grandId = grand.text.match(/id: (\S+)/)[1]
+const asGrand = await mcpAs(grandId)
+// Más abajo ya no: la cadena de lanzamientos tiene tope.
+assert.equal(
+  (await call(asGrand, 'new_task', { prompt: 'echo x', agents: ['shell'], isolate: false })).error,
+  true
+)
+assert.match((await call(asGrand, 'report', { message: 'listo' })).text, /Reported/)
+screen = ''
+for (let i = 0; i < 40 && !/\[Slate · .+\] listo/.test(screen); i++) {
+  await win.waitForTimeout(150)
+  screen = (await call(asClaude, 'read_screen', { id: childId, lines: 20 })).text
+}
+assert.match(screen, /\[Slate · .+\] listo/, 'el reporte llega a la sesión que la lanzó')
+
+// wait_for_status: vuelve al agotar el tiempo, y con el estado cuando llega (una campana deja la
+// shell en "te necesita"). Nadie se escribe a sí mismo; sin padre no hay reporte.
+assert.match(
+  (await call(asClaude, 'wait_for_status', { id: childId, until: ['done'], timeout_seconds: 1 }))
+    .text,
+  /^still /
+)
+const bell = call(asClaude, 'wait_for_status', {
+  id: childId,
+  until: ['attention'],
+  timeout_seconds: 15
+})
+await call(asClaude, 'send_to_session', { id: childId, text: 'Write-Host "campana$([char]7)"' })
+assert.equal((await bell).text, 'attention')
+assert.equal((await call(asClaude, 'send_to_session', { id: claude.id, text: 'x' })).error, true)
+assert.equal((await call(asClaude, 'report', { message: 'x' })).error, true)
+assert.equal((await call(asClaude, 'get_changes', { id: childId })).error, false)
+console.log('· orquestación por MCP: lanzar, escribir, leer, reportar y esperar')
+
+// Se cierran las dos shells lanzadas: el resto del recorrido cuenta con las sesiones de antes.
+const closedWait = call(asClaude, 'wait_for_status', { id: grandId, timeout_seconds: 20 })
+for (const id of [grandId, childId]) {
+  const title = (await win.evaluate(() => window.slate.sessions.list())).find(
+    (x) => x.id === id
+  ).title
+  await win.locator('[data-status]').filter({ hasText: title }).first().click()
+  await win.keyboard.press('Control+Shift+W')
+  await win.locator('[data-status]').filter({ hasText: title }).waitFor({ state: 'detached' })
+}
+assert.match((await closedWait).text, /was closed/, 'cerrar durante una espera la termina')
 
 // Ajustes: el engranaje se transforma en el panel y cada cambio llega al terminal en vivo.
 const overlayOpen = () => win.locator('[data-blendy-to]').count()

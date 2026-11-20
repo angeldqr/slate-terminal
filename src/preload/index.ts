@@ -29,7 +29,9 @@ const api = {
     resize: (id: string, cols: number, rows: number): void =>
       ipcRenderer.send('sessions:resize', id, cols, rows),
     onData: (fn: (id: string, data: string) => void) => on('session:data', fn),
-    onStatus: (fn: (id: string, status: Status) => void) => on('session:status', fn)
+    onStatus: (fn: (id: string, status: Status) => void) => on('session:status', fn),
+    // Sesiones que abrió un agente por MCP (new_task), con la sesión que las pidió.
+    onAdopted: (fn: (sessions: SessionInfo[], parent: string) => void) => on('sessions:adopted', fn)
   },
   agents: {
     detect: (): Promise<Agent[]> => ipcRenderer.invoke('agents:detect')

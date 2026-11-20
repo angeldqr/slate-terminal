@@ -18,6 +18,7 @@ import { readJson, writeJson } from './store'
 import * as sessions from './sessions'
 import { currentBranch, repoRoot } from './git'
 import * as changes from './changes'
+import { handleMcp } from './mcp'
 import type { Notice, SessionKind, SessionOpts } from '../shared/types'
 
 // Solo estos archivos se pueden leer o escribir desde el renderer.
@@ -53,7 +54,13 @@ function setTray(on: boolean): void {
   }
 }
 
-type SavedPrefs = { tray?: unknown; theme?: unknown } | null
+type SavedPrefs = { tray?: unknown; theme?: unknown; orchestration?: unknown } | null
+
+// Lo que de las preferencias aplica main: la bandeja y si Claude Code recibe el MCP de Slate.
+function applyPrefs(prefs: SavedPrefs): void {
+  setTray(prefs?.tray === true)
+  sessions.setOrchestration(prefs?.orchestration !== false)
+}
 
 // El tema guardado, ya resuelto: la ventana y la página pintan con él desde el primer frame.
 function startsDark(prefs: SavedPrefs): boolean {
@@ -165,7 +172,7 @@ function registerIpc(): void {
   ipcMain.handle('store:write', (_, name: string, data: unknown) => {
     if (!STORES.has(name)) return
     writeJson(name, data)
-    if (name === 'prefs') setTray((data as SavedPrefs)?.tray === true)
+    if (name === 'prefs') applyPrefs(data as SavedPrefs)
   })
 
   ipcMain.on('notify', (_, notice: Notice) => notify(notice))
@@ -189,9 +196,9 @@ app.whenReady().then(async () => {
   sessions.onSessionEvent((channel, ...args) => {
     if (win && !win.isDestroyed()) win.webContents.send(channel, ...args)
   })
-  await startHookServer(sessions.handleHook)
+  await startHookServer(sessions.handleHook, handleMcp)
   registerIpc()
-  setTray(readJson<SavedPrefs>('prefs', null)?.tray === true)
+  applyPrefs(readJson<SavedPrefs>('prefs', null))
   createWindow()
 
   app.on('activate', () => {

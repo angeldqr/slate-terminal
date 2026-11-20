@@ -3,6 +3,7 @@ import {
   CaretRightIcon,
   GearSixIcon,
   GitBranchIcon,
+  ArrowBendDownRightIcon,
   PaperPlaneTiltIcon,
   PlusIcon,
   TerminalWindowIcon
@@ -121,6 +122,8 @@ function SessionRow({
   const cancelled = useRef(false)
   const shared = useStore((s) => isShared(s, session.id))
   const stats = useStore((s) => s.diffStats[session.id])
+  // Quien la lanzó por MCP (orquestación): se nombra al pasar el puntero y con su marca.
+  const parentTitle = useStore((s) => s.sessions.find((x) => x.id === session.parent)?.title)
   // Solo tiene sentido traerla junto al panel activo si está en otra vista.
   const elsewhere = useStore((s) => !!s.activeId && viewOf(s, s.activeId) !== viewOf(s, session.id))
 
@@ -138,6 +141,7 @@ function SessionRow({
           data-unread={session.unread}
           onClick={() => selectSession(session.id)}
           onDoubleClick={() => setEditing('direct')}
+          title={parentTitle && `Lanzada por ${parentTitle}`}
           style={{ animationDelay: `${index * 50}ms` }}
           className={cn(
             rowClass,
@@ -149,6 +153,13 @@ function SessionRow({
         >
           <span className="chalk" />
           <SessionIcon kind={session.kind} />
+          {parentTitle && (
+            <ArrowBendDownRightIcon
+              size={11}
+              aria-hidden
+              className="absolute top-1.5 left-4 text-muted-foreground"
+            />
+          )}
           {editing ? (
             <input
               ref={input}

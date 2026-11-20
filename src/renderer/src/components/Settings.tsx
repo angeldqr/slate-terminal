@@ -375,6 +375,18 @@ function TerminalSection(): React.JSX.Element {
           />
         </Row>
       </Group>
+      <Group title="Agentes">
+        <Row
+          label="Orquestación"
+          description="Claude Code recibe las herramientas de Slate para lanzar, leer y dirigir a otros agentes. Vale para las sesiones nuevas."
+        >
+          <Switch
+            aria-label="Orquestación"
+            checked={p.orchestration}
+            onCheckedChange={setPref('orchestration')}
+          />
+        </Row>
+      </Group>
       <Group title="Sesiones">
         <Row
           label="Copiar al seleccionar"

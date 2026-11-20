@@ -1,11 +1,11 @@
-import { createServer } from 'node:http'
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { randomBytes } from 'node:crypto'
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 
-// Servidor local al que Claude Code manda sus hooks por HTTP.
-// El token en la ruta evita que otro proceso del equipo finja eventos.
+// Servidor local al que Claude Code manda sus hooks por HTTP y por el que habla con el MCP de
+// Slate. El token en la ruta evita que otro proceso del equipo finja eventos o use las herramientas.
 const token = randomBytes(16).toString('hex')
 const dir = join(app.getPath('userData'), 'hooks')
 let port = 0
@@ -17,13 +17,22 @@ type HookEvent = {
   prompt?: string
 }
 
+export type McpHandler = (sessionId: string, req: IncomingMessage, res: ServerResponse) => void
+
 export function startHookServer(
-  onEvent: (sessionId: string, ev: HookEvent) => void
+  onEvent: (sessionId: string, ev: HookEvent) => void,
+  onMcp: McpHandler
 ): Promise<void> {
   mkdirSync(dir, { recursive: true })
   const server = createServer((req, res) => {
     const [, root, key, sessionId] = req.url?.split('/') ?? []
-    if (req.method !== 'POST' || root !== 'hooks' || key !== token || !sessionId) {
+    if (key !== token || !sessionId) {
+      res.writeHead(404).end()
+      return
+    }
+    // El MCP lee su propio cuerpo: se le pasa la petición sin tocar.
+    if (root === 'mcp') return onMcp(sessionId, req, res)
+    if (req.method !== 'POST' || root !== 'hooks') {
       res.writeHead(404).end()
       return
     }
@@ -77,6 +86,20 @@ export function writeHookSettings(sessionId: string): string {
   return file
 }
 
+// El archivo que se le pasa a `claude --mcp-config`: el MCP de Slate para esta sesión.
+// Sin tope práctico de espera: wait_for_status puede esperar varios minutos a que otro agente termine.
+export function writeMcpConfig(sessionId: string): string {
+  const slate = {
+    type: 'http',
+    url: `http://127.0.0.1:${port}/mcp/${token}/${sessionId}`,
+    timeout: 600_000
+  }
+  const file = join(dir, `${sessionId}.mcp.json`)
+  writeFileSync(file, JSON.stringify({ mcpServers: { slate } }))
+  return file
+}
+
 export function removeHookSettings(sessionId: string): void {
   rmSync(join(dir, `${sessionId}.json`), { force: true })
+  rmSync(join(dir, `${sessionId}.mcp.json`), { force: true })
 }

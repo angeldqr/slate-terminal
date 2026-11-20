@@ -4,14 +4,29 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, relative } from 'node:path'
 import { app } from 'electron'
 import * as pty from 'node-pty'
+import { Terminal } from '@xterm/headless'
 import { AGENTS } from './agents'
 import { nextStatus, type StatusEvent } from './status'
-import type { SessionInfo, SessionKind, SessionOpts, SessionWorktree } from '../shared/types'
-import { writeHookSettings, removeHookSettings } from './hooks'
+import type {
+  SessionInfo,
+  SessionKind,
+  SessionOpts,
+  SessionWorktree,
+  Status
+} from '../shared/types'
+import { writeHookSettings, removeHookSettings, writeMcpConfig } from './hooks'
 import { freeTitle, samePath } from './titles'
 import { createWorktree, removeWorktree, repoRoot, slug, worktreeNames } from './git'
 
-type Session = SessionInfo & { pty: pty.IPty; buffer: string; quiet?: NodeJS.Timeout }
+type Session = SessionInfo & {
+  pty: pty.IPty
+  buffer: string
+  quiet?: NodeJS.Timeout
+  // Una copia de lo que se ve en su terminal, para que otro agente pueda leerla tal cual.
+  screen: Terminal
+  // Quien espera un cambio de estado (wait_for_status del MCP).
+  waiters: Set<() => void>
+}
 
 const sessions = new Map<string, Session>()
 const MAX_BUFFER = 256 * 1024 // lo que se le devuelve al renderer si se recarga
@@ -19,6 +34,8 @@ const QUIET_MS = 1500 // silencio que cuenta como "terminó" en agentes sin hook
 
 let send: (channel: string, ...args: unknown[]) => void = () => {}
 export const onSessionEvent = (fn: typeof send): void => void (send = fn)
+// Para avisos al renderer que no salen de una sesión concreta (sesiones lanzadas por MCP).
+export const emit = (channel: string, ...args: unknown[]): void => send(channel, ...args)
 
 const isWin = process.platform === 'win32'
 const defaultShell = ((): string => {
@@ -47,7 +64,13 @@ function update(s: Session, ev: StatusEvent): void {
   if (status === s.status) return
   s.status = status
   send('session:status', s.id, status)
+  s.waiters.forEach((wake) => wake())
+  s.screen.dispose() // la salida que llegue tarde ya no la escribe: la sesión salió del mapa
 }
+
+// Orquestación: Claude Code recibe el MCP de Slate (ver mcp.ts). Se apaga en Ajustes.
+let orchestration = true
+export const setOrchestration = (on: boolean): void => void (orchestration = on)
 
 // Quita secuencias OSC (títulos, enlaces…) para que su BEL de cierre no cuente como campana.
 // eslint-disable-next-line no-control-regex -- ESC y BEL son justo lo que se busca
@@ -103,6 +126,9 @@ export async function createSession(
   const parts = agent && [
     agent.cmd,
     ...(hooked ? [`--settings ${quote(writeHookSettings(id))}`] : []),
+    // ponytail: solo Claude Code recibe el MCP; los demás agentes lo configuran en sus propios
+    // archivos (Codex en config.toml, Gemini en settings.json) y no conviene tocarlos.
+    ...(hooked && orchestration ? [`--mcp-config ${quote(writeMcpConfig(id))}`] : []),
     // Una tarea que empieza por "-" no debe leerse como opción: `--` cierra las opciones.
     ...(opts.prompt && agent.promptFlag !== undefined
       ? [
@@ -148,13 +174,17 @@ export async function createSession(
     status: 'idle',
     hooked,
     worktree,
+    parent: opts.parent,
     pty: proc,
-    buffer: ''
+    buffer: '',
+    screen: new Terminal({ cols: 100, rows: 30, scrollback: 2000, allowProposedApi: true }),
+    waiters: new Set()
   }
   sessions.set(id, s)
 
   proc.onData((data) => {
     s.buffer = (s.buffer + data).slice(-MAX_BUFFER)
+    if (sessions.has(id)) s.screen.write(data)
     send('session:data', id, data)
     const bell = NOTIFY.test(data) || data.replace(OSC, '').includes('\x07')
     // En una shell normal solo el BEL importa; la salida de `ls` no es "trabajar".
@@ -174,14 +204,24 @@ export async function createSession(
   return info(s)
 }
 
-const info = ({ id, cwd, kind, title, status, hooked, worktree }: Session): SessionInfo => ({
+const info = ({
   id,
   cwd,
   kind,
   title,
   status,
   hooked,
-  worktree
+  worktree,
+  parent
+}: Session): SessionInfo => ({
+  id,
+  cwd,
+  kind,
+  title,
+  status,
+  hooked,
+  worktree,
+  parent
 })
 
 export const listSessions = (): SessionInfo[] => [...sessions.values()].map(info)
@@ -204,7 +244,94 @@ export function writeSession(id: string, data: string): void {
 
 export function resizeSession(id: string, cols: number, rows: number): void {
   const s = sessions.get(id)
-  if (s && s.status !== 'exited' && cols > 0 && rows > 0) s.pty.resize(cols, rows)
+  if (!s || s.status === 'exited' || cols <= 0 || rows <= 0) return
+  s.pty.resize(cols, rows)
+  s.screen.resize(cols, rows)
+}
+
+// Las últimas `lines` líneas de lo que se ve en la sesión, en texto plano.
+export function readScreen(id: string, lines: number): string | null {
+  const s = sessions.get(id)
+  if (!s) return null
+  const buffer = s.screen.buffer.active
+  // Hasta la línea del cursor: con poca salida, lo de debajo son filas vacías de la pantalla.
+  const end = Math.min(buffer.length, buffer.baseY + buffer.cursorY + 1)
+  const out: string[] = []
+  for (let y = Math.max(0, end - lines); y < end; y++) {
+    out.push(buffer.getLine(y)?.translateToString(true) ?? '')
+  }
+  while (out.length && !out.at(-1)!.trim()) out.pop()
+  return out.join('\n')
+}
+
+// Escribe en la sesión como si lo tecleara una persona. El texto va como pegado (bracketed paste):
+// así un salto de línea no envía el mensaje a medias. Enter llega un momento después, cuando la
+// interfaz del agente ya tiene el texto.
+// Solo si la aplicación lo activó (Claude Code sí; Windows PowerShell 5.1 no lo entiende).
+// Antes se quitan los caracteres de control: un ESC o un retorno de carro dentro del texto
+// podrían cerrar el pegado o enviar algo que nadie escribió.
+// eslint-disable-next-line no-control-regex -- los controles son justo lo que se quita
+const CONTROL = /[\x00-\x08\x0b-\x1f\x7f]/g
+export function sendText(id: string, text: string, submit: boolean): boolean {
+  const s = sessions.get(id)
+  if (!s || s.status === 'exited') return false
+  const clean = text.replace(CONTROL, '')
+  s.pty.write(s.screen.modes.bracketedPasteMode ? `\x1b[200~${clean}\x1b[201~` : clean)
+  if (submit) {
+    setTimeout(() => sessions.has(id) && s.status !== 'exited' && s.pty.write('\r'), 150)
+  }
+  return true
+}
+
+// Resuelve cuando la sesión lleva `quietMs` sin imprimir nada (ya arrancó y espera), o a los 5 s.
+export function whenSettled(id: string, quietMs = 500): Promise<void> {
+  const s = sessions.get(id)
+  if (!s) return Promise.resolve()
+  return new Promise((done) => {
+    let timer = setTimeout(finish, quietMs)
+    const cap = setTimeout(finish, 5000)
+    const sub = s.pty.onData(() => {
+      clearTimeout(timer)
+      timer = setTimeout(finish, quietMs)
+    })
+    function finish(): void {
+      clearTimeout(timer)
+      clearTimeout(cap)
+      sub.dispose()
+      done()
+    }
+  })
+}
+
+// Espera a que la sesión cambie a uno de esos estados, o hasta `ms`. Devuelve el estado final.
+// Si ya está en uno, da un margen corto: si acaba de recibir un mensaje, en un instante pasará a
+// "working" y entonces se sigue esperando.
+// Si quien espera cancela (`signal`), la espera termina en el acto.
+export function waitFor(
+  id: string,
+  until: readonly Status[],
+  ms: number,
+  signal?: AbortSignal
+): Promise<Status | null> {
+  const s = sessions.get(id)
+  if (!s) return Promise.resolve(null)
+  return new Promise((done) => {
+    const finish = (): void => {
+      s.waiters.delete(wake)
+      clearTimeout(timer)
+      clearTimeout(grace)
+      signal?.removeEventListener('abort', finish)
+      done(sessions.has(id) ? s.status : null) // null: la cerraron mientras se esperaba
+    }
+    const wake = (): void => {
+      if (!sessions.has(id) || s.status === 'exited' || until.includes(s.status)) return finish()
+      clearTimeout(grace) // cambió a otro estado (p. ej. trabajando): el margen ya no aplica
+    }
+    s.waiters.add(wake)
+    signal?.addEventListener('abort', finish)
+    const timer = setTimeout(finish, ms)
+    const grace = until.includes(s.status) ? setTimeout(finish, 3000) : undefined
+  })
 }
 
 export function renameSession(id: string, title: string): void {
@@ -217,6 +344,8 @@ export function closeSession(id: string): void {
   if (!s) return
   sessions.delete(id)
   clearTimeout(s.quiet)
+  s.waiters.forEach((wake) => wake())
+  s.screen.dispose() // la salida que llegue tarde ya no la escribe: la sesión salió del mapa
   if (s.status !== 'exited') s.pty.kill()
   removeHookSettings(id)
   removePrompt(id)

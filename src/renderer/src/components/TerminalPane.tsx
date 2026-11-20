@@ -200,8 +200,16 @@ export function TerminalPane({
     refit.current() // otra fuente o tamaño cambia cuántas columnas caben
   }, [options])
 
+  // Al activarse toma el foco, salvo que en ese momento se esté escribiendo en otro campo (p. ej.
+  // renombrar con doble clic una sesión que no era la activa): quitárselo cortaría lo escrito.
   useEffect(() => {
-    if (focused) requestAnimationFrame(() => termRef.current?.focus())
+    if (!focused) return
+    requestAnimationFrame(() => {
+      const el = document.activeElement
+      // Un campo dentro de otro panel (su búsqueda) no cuenta: el foco va al panel elegido.
+      const typing = el?.matches('input, textarea') && !el.closest('[data-terminal]')
+      if (!typing) termRef.current?.focus()
+    })
   }, [focused])
 
   const closeFind = (): void => {
@@ -212,7 +220,7 @@ export function TerminalPane({
   }
 
   return (
-    <div className="relative h-full w-full">
+    <div data-terminal className="relative h-full w-full">
       <div ref={host} className="h-full w-full" />
       {findRequest > 0 && (
         <FindBar

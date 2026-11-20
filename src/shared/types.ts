@@ -1,9 +1,11 @@
 // Tipos que comparten main, preload y renderer. Sin imports de Node aquí.
 export type AgentId = 'claude' | 'codex' | 'gemini' | 'opencode' | 'cursor'
 // Una sesión es una shell o uno de los agentes que Slate sabe lanzar.
-export type SessionKind = 'shell' | AgentId
+export const SESSION_KINDS = ['claude', 'codex', 'gemini', 'opencode', 'cursor', 'shell'] as const
+export type SessionKind = (typeof SESSION_KINDS)[number]
 
-export type Status = 'idle' | 'working' | 'attention' | 'done' | 'error' | 'exited'
+export const STATUSES = ['idle', 'working', 'attention', 'done', 'error', 'exited'] as const
+export type Status = (typeof STATUSES)[number]
 
 export type SessionInfo = {
   id: string
@@ -14,6 +16,7 @@ export type SessionInfo = {
   hooked: boolean
   // Solo en sesiones aisladas: su worktree y la carpeta de la barra lateral desde la que salió.
   worktree?: SessionWorktree
+  parent?: string // la sesión que la lanzó por MCP: a ella le llega lo que reporte
 }
 
 export type SessionWorktree = {
@@ -42,7 +45,7 @@ export type Changes = {
 }
 
 // Cómo abrir una sesión: en su propia rama y, opcionalmente, ya con una tarea.
-export type SessionOpts = { isolate?: boolean; prompt?: string }
+export type SessionOpts = { isolate?: boolean; prompt?: string; parent?: string }
 
 export type Agent = {
   id: AgentId

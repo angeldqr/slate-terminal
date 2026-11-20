@@ -20,6 +20,7 @@ export type Prefs = {
   // Lo último elegido en Nueva tarea: se repite la próxima vez.
   taskAgents: SessionKind[]
   taskIsolate: boolean
+  orchestration: boolean // Claude Code recibe el MCP de Slate para dirigir a otros agentes
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -36,7 +37,8 @@ export const DEFAULT_PREFS: Prefs = {
   sound: true,
   tray: false,
   taskAgents: ['claude'],
-  taskIsolate: true
+  taskIsolate: true,
+  orchestration: true
 }
 
 // JetBrains Mono viene con Slate; las demás son las monoespaciadas que trae Windows.

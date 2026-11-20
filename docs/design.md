@@ -249,3 +249,16 @@ Lo recorrí con Windows-MCP sin enviar mensajes. Solo anoto lo que se ve; no se 
 - **Color**: `--added` (verde apagado `#8fbf7f`, `#3f7d3a` en claro) y `--removed` (el rojo de `--destructive`) son colores de estado, igual que el ámbar. Las líneas del diff llevan una barra de 2 px de ese color y un fondo al 10 %. El código se resalta con Shiki usando un tema propio en grises de tiza (peso y cursiva, sin color).
 - **Archivos**: plegados por defecto. La carpeta se recorta por el principio y el nombre queda entero. Al desplegarse crecen en altura con Motion (200 ms, la curva base).
 - **Acción principal dividida**: "Fusionar en <base>" (squash, un solo commit, sin créditos de agentes). En el menú: Crear PR (con `gh` o, sin él, la página "comparar" de GitHub), Solo hacer commit y Descartar rama, que pide un segundo clic.
+
+## 10. Orquestación por MCP (Fase 6)
+- **Qué es**: cada Claude Code que abre Slate recibe, con `--mcp-config`, el MCP de Slate. Va en una ruta propia del servidor local, con el token secreto y el id de la sesión, así cada llamada sabe quién la hace. Se apaga en Ajustes › Terminal › Agentes.
+- **Herramientas**:
+  - `list_sessions`: ver las demás sesiones.
+  - `new_task`: lanzar agentes o shells con una tarea, en ramas aisladas por defecto. Lo lanzado recuerda quién lo pidió.
+  - `send_to_session`: escribir como una persona, con pegado entre corchetes (bracketed paste) para que un texto de varias líneas no se envíe a medias.
+  - `read_screen`: leer la pantalla en texto plano, gracias a una copia headless de xterm por sesión.
+  - `wait_for_status`: esperar a que termine o necesite algo.
+  - `get_changes`: ver los archivos tocados.
+  - `report`: avisar a quien la lanzó.
+- **En la interfaz**: las sesiones lanzadas por un agente aparecen juntas en una vista nueva, en la misma rejilla que Nueva tarea, sin quitarte el foco. La barra superior dice quién las abrió y cada fila lleva una flecha pequeña. Al pasar el puntero se lee "Lanzada por …".
+- **Límite**: solo Claude Code recibe el MCP por ahora. Codex y Gemini se configuran en sus propios archivos, que Slate no toca.

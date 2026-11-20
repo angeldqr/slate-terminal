@@ -148,7 +148,9 @@ export async function init(): Promise<void> {
     // "Sin leer" solo marca un "terminó" fuera de la vista activa; cualquier otro estado lo
     // reemplaza, así el ámbar de "te necesita" y el rojo de error nunca quedan tapados por el azul.
     const current = state.sessions.find((s) => s.id === id)
-    if (!current) return // aún no llegó al store; newSession la añade con su estado
+    // Aún no llegó al store: newSession la añade con su estado; una lanzada por MCP puede cambiar
+    // antes de que llegue el aviso, así que se guarda para aplicarlo al adoptarla.
+    if (!current) return void early.set(id, status)
     const visible = viewOf(state, state.activeId) === viewOf(state, id)
     const unread = status === 'done' && (current.unread || !visible)
     patchSession(id, { status, unread })
@@ -158,7 +160,8 @@ export async function init(): Promise<void> {
   const offClick = slate.onNotifyClick(
     (id) => state.sessions.some((s) => s.id === id) && selectSession(id)
   )
-  import.meta.hot?.dispose(() => (off(), offClick()))
+  const offAdopted = slate.sessions.onAdopted(adoptSessions)
+  import.meta.hot?.dispose(() => (off(), offClick(), offAdopted()))
 }
 
 // Aviso del sistema cuando una sesión te necesita o termina mientras miras otra ventana.
@@ -244,6 +247,34 @@ const GRID: { from: number; dir: Dir }[] = [
   { from: 1, dir: 'col' },
   { from: 0, dir: 'col' }
 ]
+const early = new Map<string, Status>()
+
+// Sesiones que otro agente abrió por MCP: llegan ya creadas y se juntan en una vista nueva, en la
+// misma rejilla que Nueva tarea. El foco se queda donde estaba: la barra superior avisa.
+export function adoptSessions(infos: SessionInfo[], parent: string): void {
+  const fresh = infos.filter((x) => !state.sessions.some((s) => s.id === x.id))
+  if (!fresh.length) return
+  let layout = pane(fresh[0].id)
+  fresh.slice(1).forEach((x, i) => {
+    const place = GRID[i % GRID.length]
+    layout = split(layout, fresh[place.from]?.id ?? fresh[0].id, x.id, place.dir)
+  })
+  setState({
+    sessions: [
+      ...state.sessions,
+      ...fresh.map((x) => ({ ...x, status: early.get(x.id) ?? x.status, unread: false }))
+    ],
+    views: [...state.views, { id: crypto.randomUUID(), layout }]
+  })
+  fresh.forEach((x) => early.delete(x.id))
+  const who = state.sessions.find((s) => s.id === parent)?.title ?? 'Un agente'
+  flashHint(
+    fresh.length === 1
+      ? `${who} abrió ${fresh[0].title}`
+      : `${who} abrió ${fresh.length} sesiones en una vista nueva`
+  )
+}
+
 export async function launchTask(
   cwd: string,
   prompt: string,
