@@ -1,5 +1,13 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import type { SessionInfo, SessionKind, SessionOpts, Status, Agent, Notice } from '../shared/types'
+import type {
+  Agent,
+  Changes,
+  Notice,
+  SessionInfo,
+  SessionKind,
+  SessionOpts,
+  Status
+} from '../shared/types'
 
 // Suscribe a un canal y devuelve la función para dejar de escuchar.
 function on<A extends unknown[]>(channel: string, fn: (...args: A) => void): () => void {
@@ -27,7 +35,15 @@ const api = {
     detect: (): Promise<Agent[]> => ipcRenderer.invoke('agents:detect')
   },
   git: {
-    branch: (cwd: string): Promise<string | null> => ipcRenderer.invoke('git:branch', cwd)
+    branch: (cwd: string): Promise<string | null> => ipcRenderer.invoke('git:branch', cwd),
+    changes: (id: string): Promise<Changes | null> => ipcRenderer.invoke('git:changes', id),
+    fileDiff: (id: string, path: string): Promise<string> =>
+      ipcRenderer.invoke('git:fileDiff', id, path),
+    commit: (id: string, msg: string): Promise<boolean> =>
+      ipcRenderer.invoke('git:commit', id, msg),
+    merge: (id: string, msg: string): Promise<string> => ipcRenderer.invoke('git:merge', id, msg),
+    discard: (id: string): Promise<string> => ipcRenderer.invoke('git:discard', id),
+    pr: (id: string, msg: string): Promise<string> => ipcRenderer.invoke('git:pr', id, msg)
   },
   store: {
     read: <T>(name: 'prefs' | 'projects', fallback: T): Promise<T> =>

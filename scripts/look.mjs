@@ -361,6 +361,8 @@ const testRepo = join(data, 'repo')
 mkdirSync(testRepo)
 const gitIn = (...args) => execFileSync('git', args, { cwd: testRepo, encoding: 'utf8' })
 gitIn('init', '-b', 'main')
+gitIn('config', 'user.name', 'Prueba')
+gitIn('config', 'user.email', 'prueba@slate.local')
 writeFileSync(join(testRepo, 'README.md'), '# repo de prueba\n')
 gitIn('add', '.')
 gitIn('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-m', 'inicio')
@@ -443,6 +445,79 @@ assert.equal(
 await first.waitForTimeout(1000)
 await shot2('tarea-copias')
 console.log('· ×2: dos ramas, una vista dividida, bajo la carpeta del repo')
+
+// Panel de cambios: lo que hace la shell aislada aparece con su diff, y se fusiona o descarta.
+const sessionsNow = () => first.evaluate(() => window.slate.sessions.list())
+const byBranch = async (name) =>
+  (await sessionsNow()).find((x) => x.worktree?.branch === `slate/${name}`)
+const third = await byBranch('anadir-busqueda-3')
+await first.evaluate(
+  ({ id }) =>
+    window.slate.sessions.write(id, "Set-Content -Path hola.txt -Value 'hola desde la rama'\r"),
+  { id: third.id }
+)
+for (let i = 0; i < 40 && !existsSync(join(third.worktree.path, 'hola.txt')); i++) {
+  await first.waitForTimeout(150)
+}
+assert.ok(existsSync(join(third.worktree.path, 'hola.txt')), 'la shell escribió en su rama')
+await first.keyboard.press('Control+Shift+G')
+const panel = first.getByRole('complementary', { name: 'Cambios' })
+await panel.getByRole('button', { name: /hola\.txt/ }).waitFor({ timeout: 8000 })
+await first.waitForTimeout(400)
+await shot2('cambios')
+await panel.getByRole('button', { name: /hola\.txt/ }).click()
+await panel.getByText('hola desde la rama').waitFor({ timeout: 8000 })
+await first.waitForTimeout(400)
+await shot2('cambios-diff')
+// La fila de la barra lateral muestra el último conteo.
+await first.locator('nav').getByText('+1', { exact: true }).waitFor({ timeout: 5000 })
+console.log('· panel de cambios: archivo nuevo, diff y conteo en la barra lateral')
+
+// Fusionar: un solo commit en main con el mensaje de la tarea; la rama y su carpeta se van.
+await panel.getByRole('button', { name: 'Fusionar en main' }).click()
+await first
+  .locator('nav')
+  .getByText('anadir-busqueda-3', { exact: true })
+  .waitFor({ state: 'detached', timeout: 15000 })
+assert.equal(gitIn('show', 'main:hola.txt').trim(), 'hola desde la rama')
+assert.equal(gitIn('log', '-1', '--format=%s').trim(), 'Añadir búsqueda')
+assert.ok(!existsSync(third.worktree.path), 'la carpeta de la rama se borró')
+assert.doesNotMatch(gitIn('branch', '--list', 'slate/*'), /anadir-busqueda-3/)
+console.log('· fusionar: commit único en main, sin la rama ni su carpeta')
+
+// Descartar la otra copia: pide confirmación y borra rama y carpeta.
+const second = await byBranch('anadir-busqueda-2')
+await first.locator('nav [data-status]').filter({ hasText: 'anadir-busqueda-2' }).click()
+await panel.getByText('Sin cambios todavía').waitFor({ timeout: 8000 })
+await shot2('cambios-vacio')
+await panel.getByRole('button', { name: 'Más acciones' }).click()
+await first.getByRole('menuitem', { name: 'Descartar rama' }).click()
+await first.getByRole('menuitem', { name: /Se borra todo/ }).click()
+await first
+  .locator('nav')
+  .getByText('anadir-busqueda-2', { exact: true })
+  .waitFor({ state: 'detached', timeout: 15000 })
+assert.ok(!existsSync(second.worktree.path), 'la carpeta descartada se borró')
+assert.doesNotMatch(gitIn('branch', '--list', 'slate/*'), /anadir-busqueda-2/)
+console.log('· descartar: confirma y borra rama y carpeta')
+
+// El mismo panel en oscuro, con la sesión que queda y un cambio en ella.
+const firstBranch = await byBranch('anadir-busqueda')
+writeFileSync(
+  join(firstBranch.worktree.path, 'README.md'),
+  '# repo de prueba\n\nCon una línea nueva.\n'
+)
+await first.locator('nav [data-status]').filter({ hasText: 'anadir-busqueda' }).first().click()
+await first.keyboard.press('Control+Shift+P')
+await first.keyboard.type('cambiar tema')
+await first.keyboard.press('Enter') // claro → oscuro
+await first.waitForFunction(() => document.documentElement.dataset.theme === 'dark')
+await first.keyboard.press('Escape')
+await panel.getByRole('button', { name: /README\.md/ }).click()
+await panel.getByText('Con una línea nueva.').waitFor({ timeout: 8000 })
+await first.waitForTimeout(700)
+await shot2('cambios-oscuro')
+console.log('· el panel en oscuro')
 
 // Con la bandeja, el botón de cerrar esconde la ventana y la app sigue viva.
 await first.evaluate(() => window.slate.win.close())

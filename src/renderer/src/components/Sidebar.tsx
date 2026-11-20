@@ -35,6 +35,7 @@ import {
   ContextMenuTrigger
 } from '@renderer/components/ui/context-menu'
 import { SessionIcon } from '@renderer/components/SessionIcon'
+import { Counts } from '@renderer/components/ChangesPanel'
 import { openNewSessionMenu, openSettings, openTask } from '@renderer/overlays'
 import { shortcutKeys } from '@renderer/shortcuts'
 import {
@@ -119,6 +120,7 @@ function SessionRow({
   const input = useRef<HTMLInputElement>(null)
   const cancelled = useRef(false)
   const shared = useStore((s) => isShared(s, session.id))
+  const stats = useStore((s) => s.diffStats[session.id])
   // Solo tiene sentido traerla junto al panel activo si está en otra vista.
   const elsewhere = useStore((s) => !!s.activeId && viewOf(s, s.activeId) !== viewOf(s, session.id))
 
@@ -176,6 +178,8 @@ function SessionRow({
                   <span className="truncate">
                     {session.worktree.branch.replace(/^slate\//, '')}
                   </span>
+                  {/* Lo último que contó el panel de cambios. */}
+                  {stats && <Counts add={stats.add} del={stats.del} className="ml-auto pl-1" />}
                 </span>
               )}
             </span>

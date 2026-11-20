@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   CopySimpleIcon,
+  GitDiffIcon,
   MagnifyingGlassIcon,
   MinusIcon,
   SidebarSimpleIcon,
@@ -11,7 +12,7 @@ import { cn } from '@renderer/lib/utils'
 import { openPalette } from '@renderer/overlays'
 import { shortcutKeys } from '@renderer/shortcuts'
 import { Keys } from './Keys'
-import { folderOf, samePath, toggleSidebar, useStore } from '@renderer/store'
+import { folderOf, samePath, toggleChanges, toggleSidebar, useStore } from '@renderer/store'
 
 const { win } = window.slate
 const HIDE_DELAY = 450 // margen para no esconderla al rozar el borde al pasar
@@ -92,6 +93,7 @@ export function TitleBar(): React.JSX.Element {
   // Con una capa abierta no arrastra: si no, su franja se tragaría los clics al fondo de la capa.
   const overlay = useStore((s) => !!s.overlay)
   const pinTopBar = useStore((s) => s.prefs.pinTopBar)
+  const changesOpen = useStore((s) => s.changes)
   const open = near || pinned || keyboardFocus || pinTopBar
 
   return (
@@ -148,7 +150,19 @@ export function TitleBar(): React.JSX.Element {
           )}
         </p>
 
-        <div className="ml-auto flex">
+        <div className="ml-auto flex items-center">
+          <button
+            onClick={toggleChanges}
+            aria-label="Mostrar u ocultar los cambios"
+            aria-pressed={changesOpen}
+            title={`Cambios (${shortcutKeys('changes')})`}
+            className={cn(
+              'no-drag mr-1 grid size-7 place-items-center rounded-sm transition-colors duration-120 hover:bg-accent hover:text-foreground',
+              changesOpen ? 'bg-accent text-foreground' : 'text-muted-foreground'
+            )}
+          >
+            <GitDiffIcon size={16} />
+          </button>
           <WinButton onClick={win.minimize} label="Minimizar">
             <MinusIcon size={16} />
           </WinButton>

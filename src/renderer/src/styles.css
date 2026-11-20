@@ -22,6 +22,9 @@
   --attention: #f0b429;
   --unread: #7aa2d6;
   --destructive: #e5534b;
+  /* Diff: lo añadido y lo quitado, los únicos colores del panel de cambios. */
+  --added: #8fbf7f;
+  --removed: var(--destructive);
   /* Elevaciones: la tarjeta del terminal y la barra superior abierta. */
   --elevation-card: 0 0 0 1px var(--border), 0 10px 40px -20px rgb(0 0 0 / 0.8);
   --elevation-bar: 0 1px 0 var(--border), 0 12px 32px -12px rgb(0 0 0 / 0.6);
@@ -39,6 +42,8 @@
   --attention: #b7791f;
   --unread: #3b6db3;
   --destructive: #c4382f;
+  --added: #3f7d3a;
+  --removed: var(--destructive);
   --elevation-card: 0 0 0 1px var(--border), 0 10px 40px -24px rgb(0 0 0 / 0.18);
   --elevation-bar: 0 1px 0 var(--border), 0 12px 32px -16px rgb(0 0 0 / 0.12);
 }
@@ -62,6 +67,8 @@
   --color-destructive-foreground: #ffffff;
   --color-attention: var(--attention);
   --color-unread: var(--unread);
+  --color-added: var(--added);
+  --color-removed: var(--removed);
   /* Escala de diseño: 6 filas, 10 tarjetas y menús, 14 paleta y diálogos. */
   --radius-sm: 6px;
   --radius-md: 10px;

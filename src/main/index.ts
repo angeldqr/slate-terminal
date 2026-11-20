@@ -17,6 +17,7 @@ import { detectAgents } from './agents'
 import { readJson, writeJson } from './store'
 import * as sessions from './sessions'
 import { currentBranch, repoRoot } from './git'
+import * as changes from './changes'
 import type { Notice, SessionKind, SessionOpts } from '../shared/types'
 
 // Solo estos archivos se pueden leer o escribir desde el renderer.
@@ -137,8 +138,22 @@ function registerIpc(): void {
   )
 
   ipcMain.handle('agents:detect', () => detectAgents())
-  // La rama actual de la carpeta, o null si no es un repo git.
-  // Un repo sin commits todavía no tiene rama: cuenta como "no se puede aislar".
+  // Panel de cambios: el renderer solo manda el id de la sesión; main resuelve rutas y ramas.
+  ipcMain.handle('git:changes', (_, id: string) => changes.sessionChanges(String(id)))
+  ipcMain.handle('git:fileDiff', (_, id: string, path: string) =>
+    changes.sessionFileDiff(String(id), String(path))
+  )
+  ipcMain.handle('git:commit', (_, id: string, msg: string) =>
+    changes.commitBranch(String(id), String(msg))
+  )
+  ipcMain.handle('git:merge', (_, id: string, msg: string) =>
+    changes.mergeBranch(String(id), String(msg))
+  )
+  ipcMain.handle('git:discard', (_, id: string) => changes.discardBranch(String(id)))
+  ipcMain.handle('git:pr', (_, id: string, msg: string) =>
+    changes.openPullRequest(String(id), String(msg))
+  )
+  // La rama actual de la carpeta, o null si no es un repo git (o si aún no tiene commits).
   ipcMain.handle('git:branch', async (_, cwd: string) => {
     const root = await repoRoot(String(cwd))
     return root ? currentBranch(root).catch(() => null) : null

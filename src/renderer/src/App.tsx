@@ -5,6 +5,7 @@ import { TitleBar } from './components/TitleBar'
 import { Sidebar } from './components/Sidebar'
 import { Views } from './components/Views'
 import { Overlays } from './components/Overlays'
+import { ChangesPanel } from './components/ChangesPanel'
 import { Keys } from './components/Keys'
 import { DottedGlowBackground } from './components/ui/dotted-glow-background'
 import { initMotion, reducedMotion } from './motion'
@@ -108,7 +109,11 @@ function App(): React.JSX.Element {
             !sidebar && 'ml-2'
           )}
         >
-          {hasSessions ? <Views /> : <Empty />}
+          {/* El panel de cambios comparte la tarjeta: el terminal cede su ancho al abrirlo. */}
+          <div className="flex h-full">
+            <div className="relative min-w-0 flex-1">{hasSessions ? <Views /> : <Empty />}</div>
+            <ChangesPanel />
+          </div>
         </main>
       </div>
       <Overlays />

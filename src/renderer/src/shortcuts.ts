@@ -5,6 +5,7 @@ import {
   SquareSplitHorizontalIcon,
   CopySimpleIcon,
   GearSixIcon,
+  GitDiffIcon,
   SidebarSimpleIcon,
   PaperPlaneTiltIcon,
   PlusIcon,
@@ -24,6 +25,7 @@ import {
   nextNeedingYou,
   selectByIndex,
   splitSession,
+  toggleChanges,
   toggleSidebar
 } from './store'
 import { terminals } from './terminals'
@@ -136,6 +138,14 @@ export const SHORTCUTS: Shortcut[] = [
     mac: 'Ctrl+Shift+Tab',
     icon: ArrowsLeftRightIcon,
     run: () => cycleView(-1)
+  },
+  {
+    id: 'changes',
+    label: 'Mostrar u ocultar los cambios',
+    win: 'Ctrl+Shift+G',
+    mac: 'Cmd+Shift+G',
+    icon: GitDiffIcon,
+    run: toggleChanges
   },
   {
     id: 'sidebar',

@@ -30,6 +30,8 @@ type State = {
   overlay: Overlay | null
   hint: string | null
   prefs: Prefs
+  changes: boolean // panel de cambios abierto
+  diffStats: Record<string, { add: number; del: number }> // último conteo por sesión
 }
 
 let state: State = {
@@ -41,7 +43,9 @@ let state: State = {
   sidebar: true,
   overlay: null,
   hint: null,
-  prefs: DEFAULT_PREFS
+  prefs: DEFAULT_PREFS,
+  changes: false,
+  diffStats: {}
 }
 const listeners = new Set<() => void>()
 
@@ -95,7 +99,7 @@ export const samePath = (a: string, b: string): boolean => normalize(a) === norm
 export const folderOf = (s: SessionInfo): string => s.worktree?.project ?? s.cwd
 
 // El error tal como lo escribió main, sin el envoltorio que le pone Electron al cruzar IPC.
-const reason = (err: unknown): string =>
+export const reason = (err: unknown): string =>
   String((err as Error)?.message ?? err).replace(
     /^Error invoking remote method '[^']+': (Error: )?/,
     ''
@@ -279,9 +283,12 @@ export function closeSession(id: string): void {
   // Al cerrar la activa, el foco pasa a su vecina en la vista; si no queda ninguna, a la última sesión.
   const neighbour = view && sibling(view.layout, id)
   const sessions = state.sessions.filter((s) => s.id !== id)
+  const diffStats = { ...state.diffStats }
+  delete diffStats[id] // sus cuentas ya no sirven
   setState({
     sessions,
     views,
+    diffStats,
     activeId: state.activeId === id ? (neighbour ?? sessions.at(-1)?.id ?? null) : state.activeId
   })
 }
@@ -321,6 +328,13 @@ export function renameSession(id: string, title: string): void {
 }
 
 export const toggleSidebar = (): void => setState({ sidebar: !state.sidebar })
+export const toggleChanges = (): void => setState({ changes: !state.changes })
+
+export function setDiffStats(id: string, add: number, del: number): void {
+  const prev = state.diffStats[id]
+  if (prev?.add === add && prev.del === del) return
+  setState({ diffStats: { ...state.diffStats, [id]: { add, del } } })
+}
 
 export const setOverlay = (overlay: Overlay | null): void => setState({ overlay })
 

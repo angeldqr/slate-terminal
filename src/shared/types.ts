@@ -22,6 +22,23 @@ export type SessionWorktree = {
   path: string // carpeta del worktree
   branch: string // slate/<nombre>
   base: string // rama de la que salió y a la que vuelve
+  task?: string // la tarea con la que se lanzó: el mensaje de commit por defecto
+}
+
+export type FileChange = {
+  path: string
+  status: 'A' | 'M' | 'D'
+  add: number
+  del: number
+  binary: boolean
+}
+
+// Lo que muestra el panel de cambios de una sesión.
+export type Changes = {
+  branch: string
+  base: string // con qué se compara: la rama base o el último commit (HEAD)
+  isolated: boolean // en su propia rama: se puede fusionar, abrir PR o descartar
+  files: FileChange[]
 }
 
 // Cómo abrir una sesión: en su propia rama y, opcionalmente, ya con una tarea.

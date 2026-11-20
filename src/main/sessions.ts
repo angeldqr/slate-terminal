@@ -73,12 +73,12 @@ const removePrompt = (id: string): void => rmSync(join(promptDir, `${id}.txt`), 
 
 // Una rama propia para la sesión, con el nombre sacado de la tarea (o del agente).
 // Si se abrió desde una subcarpeta del repo, arranca en la misma subcarpeta dentro del worktree.
-async function isolate(cwd: string, name: string): Promise<SessionWorktree> {
+async function isolate(cwd: string, name: string, task?: string): Promise<SessionWorktree> {
   const root = await repoRoot(cwd)
   if (!root)
     throw new Error('Esta carpeta no es un repositorio git: no se puede aislar en una rama.')
   const wt = await createWorktree(root, freeTitle(slug(name), await worktreeNames(root), '-'))
-  return { project: cwd, root, ...wt }
+  return { project: cwd, root, task, ...wt }
 }
 
 export async function createSession(
@@ -89,7 +89,7 @@ export async function createSession(
   const id = randomUUID()
   const agent = AGENTS.find((a) => a.id === kind)
   const worktree = opts.isolate
-    ? await isolate(cwd, opts.prompt || agent?.name || 'shell')
+    ? await isolate(cwd, opts.prompt || agent?.name || 'shell', opts.prompt)
     : undefined
   // La misma subcarpeta dentro del worktree si existe ahí (una carpeta sin versionar no existe).
   const sub = worktree ? relative(worktree.root, cwd) : ''
@@ -185,6 +185,10 @@ const info = ({ id, cwd, kind, title, status, hooked, worktree }: Session): Sess
 })
 
 export const listSessions = (): SessionInfo[] => [...sessions.values()].map(info)
+export const sessionInfo = (id: string): SessionInfo | undefined => {
+  const s = sessions.get(id)
+  return s && info(s)
+}
 
 // Lo que ya imprimió la sesión, para pintarla al volver a montarla.
 export const readBuffer = (id: string): string => sessions.get(id)?.buffer ?? ''
@@ -219,12 +223,16 @@ export function closeSession(id: string): void {
 }
 
 // En Windows, matar una pty es asíncrono (lista los procesos de su consola con un ayudante y
-// vacía la salida en otro hilo): salir sin esperar deja el proceso de Slate colgado al cerrar.
-// Por eso se espera a que terminen, con un tope por si alguna no responde.
-export async function closeAll(): Promise<void> {
-  const exited = [...sessions.values()]
-    .filter((s) => s.status !== 'exited')
-    .map((s) => new Promise<void>((done) => s.pty.onExit(() => done())))
-  for (const id of [...sessions.keys()]) closeSession(id)
+// vacía la salida en otro hilo): salir sin esperar deja el proceso de Slate colgado al cerrar, y
+// borrar la carpeta de una shell que sigue viva falla. Por eso se espera a que terminen, con un
+// tope por si alguna no responde.
+export async function closeAndWait(ids: string[]): Promise<void> {
+  const exited = ids
+    .map((id) => sessions.get(id))
+    .filter((s) => s && s.status !== 'exited')
+    .map((s) => new Promise<void>((done) => s!.pty.onExit(() => done())))
+  ids.forEach(closeSession)
   await Promise.race([Promise.all(exited), new Promise((done) => setTimeout(done, 3000))])
 }
+
+export const closeAll = (): Promise<void> => closeAndWait([...sessions.keys()])

@@ -243,3 +243,9 @@ Lo recorrí con Windows-MCP sin enviar mensajes. Solo anoto lo que se ve; no se 
 - **Acción principal dividida**: el botón muestra la siguiente acción útil ("Fusionar en main" o "Crear PR") y el menú tiene el resto (Commit, Push, Descartar).
 - **Al fusionar se quitan las líneas de crédito de agentes** (`Co-Authored-By` de agentes), por defecto, tal como lo prefiere el usuario.
 - **Se descarta**: el chat de T3 (Slate sigue siendo un terminal), el mini-mapa de turnos y el árbol de archivos (quizá más adelante).
+
+## 9. Panel de cambios (Fase 5b)
+- **Lugar**: a la derecha del terminal, dentro de la misma tarjeta, con 440 px. Entra deslizando su ancho en 200 ms, como la barra lateral. Se abre con `Ctrl+Shift+G` o con el botón de diff de la barra superior.
+- **Color**: `--added` (verde apagado `#8fbf7f`, `#3f7d3a` en claro) y `--removed` (el rojo de `--destructive`) son colores de estado, igual que el ámbar. Las líneas del diff llevan una barra de 2 px de ese color y un fondo al 10 %. El código se resalta con Shiki usando un tema propio en grises de tiza (peso y cursiva, sin color).
+- **Archivos**: plegados por defecto. La carpeta se recorta por el principio y el nombre queda entero. Al desplegarse crecen en altura con Motion (200 ms, la curva base).
+- **Acción principal dividida**: "Fusionar en <base>" (squash, un solo commit, sin créditos de agentes). En el menú: Crear PR (con `gh` o, sin él, la página "comparar" de GitHub), Solo hacer commit y Descartar rama, que pide un segundo clic.
