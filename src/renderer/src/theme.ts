@@ -35,21 +35,31 @@ export function paintPalette(p: Palette): void {
   const root = document.documentElement
   root.dataset.theme = p.dark ? 'dark' : 'light'
   const t = p.tokens
+  // accent, border y muted-foreground llevan debajo el ajuste de contraste (styles.css).
   for (const [name, value] of Object.entries({
     background: t.background,
     sidebar: t.sidebar,
     popover: t.popover,
-    accent: t.accent,
-    border: t.border,
-    'muted-foreground': t.muted,
+    'accent-base': t.accent,
+    'border-base': t.border,
+    'muted-base': t.muted,
     foreground: t.foreground
   }))
     root.style.setProperty(`--${name}`, value)
 }
 
+// Contraste, transparencia y velocidad de los paneles: variables del documento.
+export function applyLook(p: Pick<Prefs, 'contrast' | 'solid' | 'panelMs'>): void {
+  const root = document.documentElement
+  root.style.setProperty('--contrast', String(p.contrast / 100))
+  root.style.setProperty('--panel-ms', `${p.panelMs}ms`)
+  root.toggleAttribute('data-solid', p.solid)
+}
+
 // Se aplica en el acto (no en un efecto): la transición de tema captura la página justo después.
 export function applyTheme(): void {
-  const { theme, darkPalette, lightPalette } = getState().prefs
+  const { theme, darkPalette, lightPalette, ...look } = getState().prefs
+  applyLook(look)
   const dark = resolve(theme, media.matches)
   paintPalette(paletteOf(dark ? darkPalette : lightPalette, dark))
 }

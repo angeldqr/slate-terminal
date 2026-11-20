@@ -81,6 +81,7 @@ const api = {
       host: boolean
       gpu: { on: boolean; webgl: string; compositing: string }
     }> => ipcRenderer.invoke('app:info'),
+    badge: (png: string | null, label: string): void => ipcRenderer.send('app:badge', png, label),
     relaunch: (): void => ipcRenderer.send('app:relaunch'),
     openData: (): Promise<string> => ipcRenderer.invoke('app:openData'),
     shells: (): Promise<{ id: string; name: string }[]> => ipcRenderer.invoke('shells:list'),

@@ -1,6 +1,6 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
-@import '@fontsource-variable/instrument-sans';
+@import '@fontsource-variable/inter';
 @import '@fontsource/jetbrains-mono/400.css';
 @import '@fontsource/jetbrains-mono/700.css';
 
@@ -12,12 +12,12 @@
 :root,
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --background: #0c0d0e; /* grafito: lienzo del terminal */
-  --sidebar: #151719; /* pizarra */
-  --popover: #151719; /* pizarra, separada por su borde */
-  --accent: #24272a; /* lasca: hover y selección */
-  --border: #24272a;
-  --muted-foreground: #878c92; /* ceniza */
+  --background: #0a0a0a; /* grafito: lienzo del terminal */
+  --sidebar: #000000;
+  --popover: #111112;
+  --accent-base: #24272a; /* lasca: hover y selección */
+  --border-base: #24272a;
+  --muted-base: #878c92; /* ceniza */
   --foreground: #edeeef; /* tiza */
   --attention: #f0b429;
   --unread: #7aa2d6;
@@ -35,9 +35,9 @@
   --background: #fafafa;
   --sidebar: #f0f1f2;
   --popover: #ffffff;
-  --accent: #dcdee0;
-  --border: #dcdee0;
-  --muted-foreground: #6b7076;
+  --accent-base: #dcdee0;
+  --border-base: #dcdee0;
+  --muted-base: #6b7076;
   --foreground: #121314;
   --attention: #b7791f;
   --unread: #3b6db3;
@@ -46,6 +46,34 @@
   --removed: var(--destructive);
   --elevation-card: 0 0 0 1px var(--border), 0 10px 40px -24px rgb(0 0 0 / 0.18);
   --elevation-bar: 0 1px 0 var(--border), 0 12px 32px -16px rgb(0 0 0 / 0.12);
+}
+
+/* Segunda capa (como T3 Code): el ajuste de contraste mezcla borde, hover y texto secundario con el
+   texto (más contraste) o con el fondo (menos). 1 = el tema tal cual. */
+:root {
+  --contrast: 1;
+  --up: clamp(0%, calc((var(--contrast) - 1) * 28%), 100%);
+  --down: clamp(0%, calc((1 - var(--contrast)) * 70%), 100%);
+  --border: color-mix(
+    in oklab,
+    color-mix(in oklab, var(--border-base), var(--foreground) var(--up)),
+    var(--background) var(--down)
+  );
+  --accent: color-mix(
+    in oklab,
+    color-mix(in oklab, var(--accent-base), var(--foreground) var(--up)),
+    var(--background) var(--down)
+  );
+  --muted-foreground: color-mix(
+    in oklab,
+    color-mix(in oklab, var(--muted-base), var(--foreground) var(--up)),
+    var(--background) var(--down)
+  );
+  --panel-ms: 200ms; /* duración de barra lateral, cambios y tablero (Ajustes › Apariencia) */
+  --glass-mix: 78%;
+  --highlight: color-mix(in oklab, var(--foreground) 7%, transparent);
+  --elevation-pop:
+    0 0 0 1px var(--border), inset 0 1px 0 var(--highlight), 0 16px 40px -12px rgb(0 0 0 / 0.55);
 }
 
 @theme inline {
@@ -75,9 +103,17 @@
   --radius-lg: 10px;
   --radius-xl: 14px;
   --text-sm: 13px; /* los menús de shadcn usan text-sm: así quedan en la escala 12/13/15/20 */
-  --font-sans: 'Instrument Sans Variable', 'Segoe UI Variable Text', system-ui, sans-serif;
+  --font-sans: 'Inter Variable', 'Segoe UI Variable Text', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
   --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-drawer: cubic-bezier(
+    0.32,
+    0.72,
+    0,
+    1
+  ); /* la de los paneles: arranca con decisión y aterriza suave */
+  --text-2xs: 11px;
+  --text-3xs: 10px;
   --animate-breathe: breathe 1.6s ease-in-out infinite; /* algo en marcha, sin prisa */
   @keyframes breathe {
     50% {
@@ -108,6 +144,94 @@ body {
 ::before,
 ::after {
   border-color: var(--border);
+}
+
+/* Vidrio: menús, paleta, ajustes y avisos. Fondo translúcido con desenfoque, un reflejo de 1 px
+   arriba y grano dentro de la superficie (no encima de todo: la GPU lo agradece).
+   "Reducir transparencia" (o un Chromium sin backdrop-filter) lo vuelve sólido. */
+.glass,
+[data-slot='dropdown-menu-content'],
+[data-slot='dropdown-menu-sub-content'],
+[data-slot='context-menu-content'],
+[data-slot='context-menu-sub-content'],
+[data-slot='select-content'],
+[data-slot='dialog-content'] {
+  /* El grano es la primera capa del propio fondo (blanco con alfa ~4 %): sin pseudo-elementos
+     que obliguen a posicionar la superficie. */
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+    color-mix(in oklab, var(--popover) var(--glass-mix), transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.5);
+  backdrop-filter: blur(14px) saturate(1.5);
+  box-shadow: var(--elevation-pop);
+  border-color: transparent;
+}
+@supports not (backdrop-filter: blur(1px)) {
+  :root {
+    --glass-mix: 100%;
+  }
+}
+:root[data-solid] {
+  --glass-mix: 100%;
+}
+:root[data-solid] .glass,
+:root[data-solid] [data-slot='dropdown-menu-content'],
+:root[data-solid] [data-slot='context-menu-content'],
+:root[data-solid] [data-slot='select-content'],
+:root[data-solid] [data-slot='dialog-content'] {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.glass-bar {
+  background: color-mix(in oklab, var(--sidebar) 88%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  backdrop-filter: blur(16px) saturate(1.5);
+}
+:root[data-solid] .glass-bar {
+  background: var(--sidebar);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Menús y diálogos: entran creciendo desde el 98 % hacia donde se abrieron, y salen igual. */
+[data-slot='dropdown-menu-content'],
+[data-slot='dropdown-menu-sub-content'],
+[data-slot='context-menu-content'],
+[data-slot='context-menu-sub-content'],
+[data-slot='select-content'] {
+  transform-origin: var(
+    --radix-dropdown-menu-content-transform-origin,
+    var(
+      --radix-context-menu-content-transform-origin,
+      var(--radix-select-content-transform-origin, center)
+    )
+  );
+}
+[data-slot='dropdown-menu-content'][data-state='open'],
+[data-slot='dropdown-menu-sub-content'][data-state='open'],
+[data-slot='context-menu-content'][data-state='open'],
+[data-slot='context-menu-sub-content'][data-state='open'],
+[data-slot='select-content'][data-state='open'] {
+  animation: pop-in 140ms var(--ease-out-quint);
+}
+[data-slot='dropdown-menu-content'][data-state='closed'],
+[data-slot='dropdown-menu-sub-content'][data-state='closed'],
+[data-slot='context-menu-content'][data-state='closed'],
+[data-slot='context-menu-sub-content'][data-state='closed'],
+[data-slot='select-content'][data-state='closed'] {
+  animation: pop-out 100ms ease-in forwards;
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    scale: 0.98;
+  }
+}
+@keyframes pop-out {
+  to {
+    opacity: 0;
+    scale: 0.98;
+  }
 }
 
 /* Barras de scroll finas y del color de la lasca, como la del terminal. */

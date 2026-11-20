@@ -37,6 +37,9 @@ export type Prefs = {
   orchestration: boolean // Claude Code recibe el MCP de Slate para dirigir a otros agentes
   keepAlive: boolean // las sesiones siguen vivas en el host al salir de Slate
   autoUpdate: boolean // buscar versiones nuevas al abrir Slate
+  contrast: number // contraste de bordes y texto secundario, en % (100 = el tema tal cual)
+  solid: boolean // reducir transparencia: superficies sólidas, sin vidrio
+  panelMs: number // duración de las animaciones de los paneles, en ms
   gpu: boolean // aceleración por GPU (vale desde el siguiente arranque)
 }
 
@@ -71,6 +74,9 @@ export const DEFAULT_PREFS: Prefs = {
   orchestration: true,
   keepAlive: true,
   autoUpdate: true,
+  contrast: 100,
+  solid: false,
+  panelMs: 200,
   gpu: true
 }
 
@@ -82,6 +88,8 @@ export const LIMITS = {
   lineHeight: { min: 1, max: 1.6, step: 0.05 },
   letterSpacing: { min: -1, max: 3, step: 0.5 },
   terminalPadding: { min: 0, max: 24, step: 2 },
+  contrast: { min: 50, max: 200, step: 10 },
+  panelMs: { min: 0, max: 400, step: 50 },
   changesWidth: { min: 360, max: 960, step: 1 }
 } as const
 

@@ -18,14 +18,14 @@ export const PALETTES: Palette[] = [
     label: 'Grafito',
     dark: true,
     tokens: {
-      background: '#0c0d0e',
-      sidebar: '#151719',
-      popover: '#151719',
-      accent: '#24272a',
-      border: '#24272a',
-      muted: '#878c92',
-      foreground: '#edeeef',
-      selection: '#3a3e43'
+      background: '#0a0a0a',
+      sidebar: '#000000',
+      popover: '#111112',
+      accent: '#1f2022',
+      border: '#1d1e20', // ≈ blanco al 8 % sobre el lienzo
+      muted: '#8a8d92',
+      foreground: '#ededee',
+      selection: '#34363a'
     }
   },
   {

@@ -409,9 +409,12 @@ const outlineButton =
   'h-8 shrink-0 rounded-sm border border-border px-3 text-[12px] text-muted-foreground transition-colors duration-120 hover:border-muted-foreground/40 hover:text-foreground disabled:opacity-40'
 
 function Appearance(): React.JSX.Element {
-  const { pinTopBar, uiScale } = useStore((s) => ({
+  const { pinTopBar, uiScale, contrast, solid, panelMs } = useStore((s) => ({
     pinTopBar: s.prefs.pinTopBar,
-    uiScale: s.prefs.uiScale
+    uiScale: s.prefs.uiScale,
+    contrast: s.prefs.contrast,
+    solid: s.prefs.solid,
+    panelMs: s.prefs.panelMs
   }))
   return (
     <>
@@ -443,6 +446,43 @@ function Appearance(): React.JSX.Element {
             aria-label="Barra superior fija"
             checked={pinTopBar}
             onCheckedChange={setPref('pinTopBar')}
+          />
+        </Row>
+        <Row
+          label="Contraste"
+          description="Bordes y texto secundario: más marcados o más suaves que el tema."
+          reset={['contrast']}
+        >
+          <Range
+            label="Contraste"
+            value={contrast}
+            limits={LIMITS.contrast}
+            format={(v) => `${v} %`}
+            onChange={setPref('contrast')}
+          />
+        </Row>
+        <Row
+          label="Reducir transparencia"
+          description="Menús, paleta y avisos con fondo sólido, sin vidrio ni desenfoque."
+          reset={['solid']}
+        >
+          <Switch
+            aria-label="Reducir transparencia"
+            checked={solid}
+            onCheckedChange={setPref('solid')}
+          />
+        </Row>
+        <Row
+          label="Velocidad de los paneles"
+          description="Cuánto tardan en abrirse la barra lateral, los cambios y el tablero. 0 los abre al instante."
+          reset={['panelMs']}
+        >
+          <Range
+            label="Duración de los paneles"
+            value={panelMs}
+            limits={LIMITS.panelMs}
+            format={(v) => (v ? `${v} ms` : 'Al instante')}
+            onChange={setPref('panelMs')}
           />
         </Row>
       </Group>

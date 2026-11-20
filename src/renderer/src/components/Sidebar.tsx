@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { MotionConfig, motion } from 'motion/react'
 import {
   CaretRightIcon,
   GearSixIcon,
@@ -139,7 +140,9 @@ function SessionRow({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div
+        <motion.div
+          layout="position"
+          transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
           data-status={session.status}
           data-unread={session.unread}
           aria-current={active ? 'true' : undefined}
@@ -199,7 +202,7 @@ function SessionRow({
               )}
             </span>
           )}
-        </div>
+        </motion.div>
       </ContextMenuTrigger>
       <ContextMenuContent
         className="w-52"
@@ -465,11 +468,11 @@ export function Sidebar(): React.JSX.Element {
   }
 
   return (
-    <>
+    <MotionConfig reducedMotion="user">
       <aside
         inert={!open}
         className={cn(
-          'shrink-0 overflow-hidden transition-[width] duration-200 ease-out-quint',
+          'shrink-0 overflow-hidden transition-[width] duration-(--panel-ms) ease-drawer',
           open ? 'w-60' : 'w-0'
         )}
       >
@@ -492,15 +495,15 @@ export function Sidebar(): React.JSX.Element {
           style={{ animationFillMode: 'forwards' }}
           className={cn(
             pinnedBar ? 'top-11' : 'top-2',
-            'fixed bottom-2 left-2 z-30 flex w-60 flex-col rounded-lg border border-border bg-sidebar/80 shadow-2xl backdrop-blur-xl backdrop-saturate-150',
+            'fixed bottom-2 left-2 z-30 flex w-60 flex-col rounded-lg glass',
             peek === 'in'
-              ? 'animate-in duration-200 ease-out-quint slide-in-from-left-full'
+              ? 'animate-in duration-(--panel-ms) ease-drawer slide-in-from-left-full'
               : 'animate-out duration-160 ease-in slide-out-to-left-full'
           )}
         >
           <SidebarContent morphSource={false} />
         </aside>
       )}
-    </>
+    </MotionConfig>
   )
 }

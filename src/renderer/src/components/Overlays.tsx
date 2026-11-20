@@ -234,7 +234,7 @@ export function Overlays(): React.JSX.Element | null {
       />
       <div
         data-blendy-to={overlay}
-        className={`fixed z-50 overflow-hidden border border-border bg-popover shadow-2xl ${PANELS[overlay]}`}
+        className={`fixed z-50 overflow-hidden glass ${PANELS[overlay]}`}
       >
         <div className="h-full">
           <Content />

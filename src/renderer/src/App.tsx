@@ -13,8 +13,9 @@ import { DottedGlowBackground } from './components/ui/dotted-glow-background'
 import { initMotion, reducedMotion } from './motion'
 import { openTask } from './overlays'
 import { installShortcuts, shortcutKeys } from './shortcuts'
-import { addFolder, init, newSession, useStore } from './store'
-import { applyTheme, watchSystemTheme } from './theme'
+import { addFolder, init, needsYou, newSession, useStore } from './store'
+import { applyLook, applyTheme, watchSystemTheme } from './theme'
+import { Toaster } from '@renderer/components/ui/sonner'
 
 // Si algo falla al cargar, Slate abre igual con la barra lateral vacía en vez de en blanco.
 const loading = init().catch((err) => console.error('Slate no pudo cargar sus datos:', err))
@@ -87,6 +88,31 @@ function App(): React.JSX.Element {
   // Tamaño de toda la interfaz; el terminal compensa para conservar su propio tamaño de letra.
   useEffect(() => window.slate.app.setZoom(uiScale / 100), [uiScale])
 
+  const contrast = useStore((s) => s.prefs.contrast)
+  const solid = useStore((s) => s.prefs.solid)
+  const panelMs = useStore((s) => s.prefs.panelMs)
+  useEffect(() => applyLook({ contrast, solid, panelMs }), [contrast, solid, panelMs])
+
+  // Cuántas sesiones te necesitan, también en el icono de la barra de tareas.
+  const waiting = useStore((s) => s.sessions.filter((x) => needsYou(x.status)).length)
+  useEffect(() => {
+    if (!waiting) return window.slate.app.badge(null, '')
+    const c = document.createElement('canvas')
+    c.width = c.height = 32
+    const g = c.getContext('2d')
+    if (!g) return
+    g.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--attention')
+    g.beginPath()
+    g.arc(16, 16, 15, 0, Math.PI * 2)
+    g.fill()
+    g.fillStyle = '#000000'
+    g.font = '700 20px sans-serif'
+    g.textAlign = 'center'
+    g.textBaseline = 'middle'
+    g.fillText(waiting > 9 ? '9+' : String(waiting), 16, 17)
+    window.slate.app.badge(c.toDataURL('image/png'), `${waiting} te necesitan`)
+  }, [waiting])
+
   // Main ya pintó con el tema guardado; aquí se confirma con las preferencias y se sigue al sistema.
   useLayoutEffect(() => {
     applyTheme()
@@ -105,14 +131,14 @@ function App(): React.JSX.Element {
       {/* Arriba, 8 px de marco para la franja de la barra escondida, o la barra entera si está fija. */}
       <div
         className={cn(
-          'flex h-full transition-[padding] duration-200 ease-out-quint',
+          'flex h-full transition-[padding] duration-(--panel-ms) ease-drawer',
           pinnedBar ? 'pt-9' : 'pt-2'
         )}
       >
         <Sidebar />
         <main
           className={cn(
-            'mr-2 mb-2 min-w-0 flex-1 overflow-hidden rounded-lg bg-background shadow-[var(--elevation-card)] transition-[margin] duration-200 ease-out-quint',
+            'mr-2 mb-2 min-w-0 flex-1 overflow-hidden rounded-lg bg-background shadow-[var(--elevation-card)] transition-[margin] duration-(--panel-ms) ease-drawer',
             !sidebar && 'ml-2'
           )}
         >
@@ -128,6 +154,7 @@ function App(): React.JSX.Element {
         </main>
       </div>
       <Overlays />
+      <Toaster />
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import { useRef, useSyncExternalStore } from 'react'
+import { toast } from 'sonner'
 import type {
   Agent,
   FileChange,
@@ -39,7 +40,6 @@ type State = {
   activeId: string | null
   sidebar: boolean
   overlay: Overlay | null
-  hint: string | null
   prefs: Prefs
   changes: boolean // panel de cambios abierto
   board: boolean // tablero con todas las sesiones a la vista
@@ -55,7 +55,6 @@ let state: State = {
   activeId: null,
   sidebar: true,
   overlay: null,
-  hint: null,
   prefs: DEFAULT_PREFS,
   changes: false,
   board: false,
@@ -473,12 +472,9 @@ export function setDiffStats(id: string, add: number, del: number): void {
 
 export const setOverlay = (overlay: Overlay | null): void => setState({ overlay })
 
-// Aviso breve en la barra de título; se borra solo.
-let hintTimer: ReturnType<typeof setTimeout> | undefined
+// Aviso breve: un toast apilado abajo a la derecha que se va solo.
 export function flashHint(hint: string): void {
-  clearTimeout(hintTimer)
-  setState({ hint })
-  hintTimer = setTimeout(() => setState({ hint: null }), 2500)
+  toast(hint, { duration: 3500 })
 }
 
 // Agrupa sesiones por vista en el orden en que aparecen: así se muestran en la barra lateral.

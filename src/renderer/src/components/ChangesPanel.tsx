@@ -471,7 +471,7 @@ export function ChangesPanel(): React.JSX.Element {
       style={{ width: open ? width : 0 }}
       className={cn(
         'relative shrink-0 overflow-hidden',
-        !dragging && 'transition-[width] duration-200 ease-out-quint',
+        !dragging && 'transition-[width] duration-(--panel-ms) ease-drawer',
         open && 'border-l border-border'
       )}
     >

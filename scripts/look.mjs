@@ -507,7 +507,7 @@ assert.equal((await tokens()).trim(), '#0d1117', 'el tema gris llega a la interf
 await shot('ajustes-pizarra')
 await win.getByRole('radio', { name: 'Grafito' }).click()
 await win.waitForTimeout(600)
-assert.equal((await tokens()).trim(), '#0c0d0e')
+assert.equal((await tokens()).trim(), '#0a0a0a')
 // Tamaño de la interfaz: el zoom cambia y el botón de restablecer lo devuelve al 100 %.
 await win.getByRole('slider', { name: 'Tamaño de la interfaz' }).focus()
 await win.keyboard.press('ArrowRight')

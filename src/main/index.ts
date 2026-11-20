@@ -5,6 +5,7 @@ import {
   ipcMain,
   dialog,
   Menu,
+  nativeImage,
   nativeTheme,
   Notification,
   Tray
@@ -250,6 +251,10 @@ function registerIpc(): void {
     }
   }))
   ipcMain.handle('app:openData', () => shell.openPath(app.getPath('userData')))
+  // Insignia de la barra de tareas: cuántas sesiones te necesitan (un PNG que dibuja el renderer).
+  ipcMain.on('app:badge', (_, png: string | null, label: string) => {
+    win?.setOverlayIcon(png ? nativeImage.createFromDataURL(png) : null, label)
+  })
   // Reiniciar para aplicar la GPU: con "Mantener las sesiones", siguen vivas en el host.
   ipcMain.on('app:relaunch', () => {
     app.relaunch()

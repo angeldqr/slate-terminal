@@ -308,7 +308,7 @@ function FindBar({
   const input = useRef<HTMLInputElement>(null)
   useEffect(() => input.current?.select(), [request])
   return (
-    <div className="absolute top-1 right-3 z-10 flex h-8 items-center gap-0.5 rounded-md border border-border bg-popover pr-1 pl-2 shadow-lg">
+    <div className="absolute top-1 right-3 z-10 flex h-8 items-center gap-0.5 rounded-md glass pr-1 pl-2">
       <input
         ref={input}
         value={query}

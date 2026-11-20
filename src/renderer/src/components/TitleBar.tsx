@@ -95,9 +95,8 @@ export function TitleBar(): React.JSX.Element {
   const folder = useStore(
     (s) => s.projects.find((p) => active && samePath(p.path, folderOf(active)))?.name
   )
-  const hint = useStore((s) => s.hint)
-  // Con un aviso o una capa abierta se queda a la vista: el aviso vive en ella.
-  const pinned = useStore((s) => !!s.hint || !!s.overlay)
+  // Con una capa abierta se queda a la vista.
+  const pinned = useStore((s) => !!s.overlay)
   // Con una capa abierta no arrastra: si no, su franja se tragaría los clics al fondo de la capa.
   const overlay = useStore((s) => !!s.overlay)
   const pinTopBar = useStore((s) => s.prefs.pinTopBar)
@@ -110,14 +109,14 @@ export function TitleBar(): React.JSX.Element {
       onFocus={(e) => setKeyboardFocus(e.target.matches(':focus-visible'))}
       onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setKeyboardFocus(false)}
       className={cn(
-        'absolute inset-x-0 top-0 z-[35] overflow-hidden transition-[height,background-color,box-shadow] duration-200 ease-out-quint',
+        'absolute inset-x-0 top-0 z-[35] overflow-hidden transition-[height,background-color,box-shadow] duration-(--panel-ms) ease-drawer',
         open && !overlay ? 'drag' : 'no-drag',
-        open ? 'h-9 bg-sidebar/90 shadow-[var(--elevation-bar)] backdrop-blur-xl' : 'h-2'
+        open ? 'glass-bar h-9 shadow-[var(--elevation-bar)]' : 'h-2'
       )}
     >
       <div
         className={cn(
-          'relative flex h-9 items-center transition-[opacity,translate] duration-200 ease-out-quint',
+          'relative flex h-9 items-center transition-[opacity,translate] duration-(--panel-ms) ease-drawer',
           open ? 'translate-y-0 opacity-100' : 'pointer-events-none -translate-y-2 opacity-0'
         )}
       >
@@ -143,19 +142,12 @@ export function TitleBar(): React.JSX.Element {
         </button>
 
         {/* Centrado respecto a la ventana, no al espacio que dejan los botones. */}
-        <p
-          aria-live="polite"
-          className="pointer-events-none absolute inset-x-0 mx-auto w-fit max-w-[40%] truncate text-[12px] text-muted-foreground"
-        >
-          {hint ? (
-            <span className="text-foreground">{hint}</span>
-          ) : (
-            active && (
-              <>
-                <span className="text-foreground">{active.title}</span>
-                {folder && <span> en {folder}</span>}
-              </>
-            )
+        <p className="pointer-events-none absolute inset-x-0 mx-auto w-fit max-w-[40%] truncate text-[12px] text-muted-foreground">
+          {active && (
+            <>
+              <span className="text-foreground">{active.title}</span>
+              {folder && <span> en {folder}</span>}
+            </>
           )}
         </p>
 
