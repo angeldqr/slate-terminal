@@ -822,8 +822,7 @@ await shot2('cambios-diff')
 await first.locator('nav').getByText('+1', { exact: true }).waitFor({ timeout: 5000 })
 console.log('· panel de cambios: archivo nuevo, diff y conteo en la barra lateral')
 
-// Abrir y cerrar Cambios no debe dejar el lienzo WebGL de xterm a medias. El panel reserva su
-// ancho de una vez y anima solo su superficie; se comprueban el búfer y los canvas tras cada ciclo.
+// Cambios se superpone al terminal sin renegociar sus columnas con la shell.
 const resizeMarker = 'slate-refit-estable'
 await first.evaluate(
   ({ id, marker }) => window.slate.sessions.write(id, `Write-Output '${marker}'\r`),
@@ -855,20 +854,21 @@ const terminalWidth = () =>
         .find((screen) => screen.getClientRects().length)
         ?.getBoundingClientRect().width ?? 0
   )
-const narrowWidth = await terminalWidth()
+const stableWidth = await terminalWidth()
+const panelClose = panel.getByRole('button', { name: 'Cerrar cambios' })
 for (let i = 0; i < 3; i++) {
   await first.keyboard.press('Control+Shift+G')
-  await first.waitForTimeout(350)
-  assert.equal(await panel.evaluate((el) => el.getBoundingClientRect().width), 0)
-  assert.ok((await terminalWidth()) > narrowWidth, 'al cerrar, el terminal recupera el ancho')
+  await panelClose.waitFor({ state: 'detached' })
+  assert.equal(await terminalWidth(), stableWidth, 'el terminal mantiene sus columnas al cerrar')
   assert.equal(await bufferedMarker(), true, 'la salida se conserva al cerrar Cambios')
   assert.equal(await validCanvas(), true, 'el canvas conserva un tamaño válido al cerrar')
   await first.mouse.move(370, 200)
   await first.mouse.wheel(0, -160)
   await first.keyboard.press('Control+Shift+G')
+  await panelClose.waitFor()
   await first.waitForTimeout(350)
   assert.equal(await panel.evaluate((el) => el.getBoundingClientRect().width), 480)
-  assert.equal(await terminalWidth(), narrowWidth, 'al abrir, el terminal vuelve al mismo ancho')
+  assert.equal(await terminalWidth(), stableWidth, 'el terminal mantiene sus columnas al abrir')
   assert.equal(await bufferedMarker(), true, 'la salida se conserva al abrir Cambios')
   assert.equal(await validCanvas(), true, 'el canvas conserva un tamaño válido al abrir')
 }

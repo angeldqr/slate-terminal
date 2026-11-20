@@ -47,14 +47,18 @@ jobs:
 
       # Prueba el binario que se usó para crear el instalador, antes de publicarlo.
       - name: Probar el ejecutable empaquetado
-        run: npm run look:exe
+        run: |
+          npm run look:exe
+          npm run look:scroll -- --exe dist/win-unpacked/slate.exe
 
       - name: Guardar capturas del recorrido
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: slate-capturas-windows
-          path: .look/*.png
+          path: |
+            .look/*.png
+            .look/scroll/verificado/*.png
           include-hidden-files: true
 
       # La release se crea de una vez con los tres archivos: sin latest.yml, las copias

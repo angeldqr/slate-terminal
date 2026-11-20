@@ -74,6 +74,7 @@ npm run check        # pruebas de la lógica (estados, disposición, atajos, git
 npm run look         # recorrido completo de la app con Playwright; capturas en .look/
 npm run build:win    # instalador de Windows en dist/
 npm run look:exe     # el mismo recorrido sobre dist/win-unpacked (tras npm run build:unpack)
+npm run look:scroll  # comprueba los píxeles del historial al usar Cambios (Windows, después del build)
 npm run perf         # mide la fluidez con hasta 20 shells (Windows, después de npm run build)
 ```
 

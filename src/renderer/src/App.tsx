@@ -156,8 +156,7 @@ function App(): React.JSX.Element {
               !sidebar && 'ml-2'
             )}
           >
-            {/* El panel de cambios comparte la tarjeta: el terminal cede su ancho al abrirlo. */}
-            <div className="flex h-full">
+            <div className="relative flex h-full">
               <div className="relative min-w-0 flex-1">
                 {hasSessions ? <Views /> : <Empty />}
                 {/* Encima de las vistas, sin desmontarlas: los terminales siguen vivos debajo. */}

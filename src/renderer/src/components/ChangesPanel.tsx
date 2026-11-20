@@ -594,32 +594,26 @@ function Actions({
 }
 
 // Panel de cambios: a la derecha del terminal, lo que la sesión activa ha tocado.
-// Reserva su ancho de una vez y desliza solo su superficie, para no redibujar xterm por cada frame.
+// Se superpone: incluso un solo cambio de columnas puede alterar el historial ANSI de una TUI al
+// combinar el reflujo de xterm con el redibujado de ConPTY. Cambios nunca redimensiona el terminal.
 export function ChangesPanel(): React.JSX.Element {
   const open = useStore((s) => s.changes)
   const id = useStore((s) => s.activeId)
   const savedWidth = useStore((s) => s.prefs.changesWidth)
   const panelMs = useStore((s) => s.prefs.panelMs)
   const reduce = useReduceMotion()
-  const [present, setPresent] = useState(open)
   const [dragWidth, setDragWidth] = useState<number | null>(null)
   const width = dragWidth ?? savedWidth
-  const occupiesSpace = open || present
-
-  // El terminal cambia de tamaño una vez al abrir y una vez al terminar de cerrar. Animar el ancho
-  // del contenedor forzaba a xterm/WebGL a repintarse en cada frame y podía dejar el lienzo corrupto.
-  useEffect(() => {
-    if (!open) return
-    const frame = requestAnimationFrame(() => setPresent(true))
-    return () => cancelAnimationFrame(frame)
-  }, [open])
 
   return (
     <aside
       aria-label="Cambios"
       inert={!open}
-      style={{ width: occupiesSpace ? width : 0 }}
-      className={cn('relative shrink-0 overflow-hidden', occupiesSpace && 'border-l border-border')}
+      style={{ width }}
+      className={cn(
+        'absolute inset-y-0 right-0 z-20 max-w-full overflow-hidden',
+        !open && 'pointer-events-none'
+      )}
     >
       {open && (
         <ResizeHandle
@@ -631,18 +625,18 @@ export function ChangesPanel(): React.JSX.Element {
           }}
         />
       )}
-      <AnimatePresence initial={false} onExitComplete={() => !open && setPresent(false)}>
+      <AnimatePresence initial={false}>
         {open && (
           <motion.div
             initial={{ opacity: 0, x: '5%' }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: '5%' }}
             transition={{ duration: reduce ? 0 : panelMs / 1000, ease: [0.32, 0.72, 0, 1] }}
-            className="h-full w-full will-change-transform"
+            className="h-full w-full border-l border-border bg-background"
           >
             {/* Por sesión: al cambiar de sesión todo vuelve a empezar, plegado. */}
             <DiffPool>
-              <PanelBody key={id ?? 'ninguna'} id={id} open={open} width={width} />
+              <PanelBody key={id ?? 'ninguna'} id={id} open={open} />
             </DiffPool>
           </motion.div>
         )}
@@ -722,15 +716,7 @@ const SCOPES: { id: DiffScope; label: string; title: string }[] = [
   { id: 'last', label: 'Último commit', title: 'Solo lo que entró en el último commit' }
 ]
 
-function PanelBody({
-  id,
-  open,
-  width
-}: {
-  id: string | null
-  open: boolean
-  width: number
-}): React.JSX.Element {
+function PanelBody({ id, open }: { id: string | null; open: boolean }): React.JSX.Element {
   const status = useStore((s) => s.sessions.find((x) => x.id === id)?.status)
   const hideTests = useStore((s) => s.prefs.hideTests)
   const asTree = useStore((s) => s.prefs.changesView === 'tree')
@@ -821,7 +807,7 @@ function PanelBody({
   const visibleScope = scope === 'base' && isolated === false ? 'uncommitted' : scope
 
   return (
-    <div className="flex h-full flex-col bg-sidebar/40" style={{ width }}>
+    <div className="flex h-full flex-col bg-sidebar/40">
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border pr-1.5 pl-3">
         {changes ? (
           <span className="flex min-w-0 items-center gap-1.5">
