@@ -838,10 +838,7 @@ await panel
   .locator('[data-diff-type="split"]')
   .first()
   .waitFor({ state: 'detached', timeout: 8000 })
-await panel
-  .getByText(/unchanged/i)
-  .first()
-  .waitFor({ timeout: 8000 }) // el diff ofrece desplegar contexto
+await panel.locator('[data-unmodified-lines]').first().waitFor({ state: 'attached', timeout: 8000 }) // el diff ofrece desplegar contexto
 await first.evaluate(
   ({ id }) => window.slate.sessions.write(id, "Set-Content -Path ui.txt -Value 'x'\r"),
   { id: third.id }
@@ -896,7 +893,10 @@ await first.locator('nav [data-status]').filter({ hasText: 'anadir-busqueda' }).
 await first.keyboard.press('Control+Shift+P')
 await first.keyboard.type('cambiar tema')
 await first.keyboard.press('Enter') // abre el submenú de temas
-await first.getByRole('option', { name: /^Oscuro/ }).first().click() // claro → oscuro
+await first
+  .getByRole('option', { name: /^Oscuro/ })
+  .first()
+  .click() // claro → oscuro
 await first.waitForFunction(() => document.documentElement.dataset.theme === 'dark')
 await first.keyboard.press('Escape') // vuelve a la lista
 await first.keyboard.press('Escape') // cierra la paleta

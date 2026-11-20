@@ -46,6 +46,14 @@ const CSS = `
   --diffs-bg-separator-override: color-mix(in srgb, var(--foreground) 5%, transparent);
   --diffs-font-family: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
   --diffs-line-height: 1.6;
+}
+/* El texto del separador de contexto viene en inglés de la librería: se dice en español. */
+:is([data-separator='line-info'], [data-separator='line-info-basic']) [data-separator-content] {
+  font-size: 0 !important;
+}
+:is([data-separator='line-info'], [data-separator='line-info-basic']) [data-separator-content]::after {
+  content: 'Mostrar contexto sin cambios';
+  font-size: 11px;
 }`
 
 type Side = 'deletions' | 'additions'

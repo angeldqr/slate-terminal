@@ -151,9 +151,9 @@ Ajustes, la paleta y Notas aparecen sin transición de página: solo el fundido 
 
 | Nombre | Hex | Uso |
 |---|---|---|
-| Grafito | `#0C0D0E` | lienzo del terminal |
-| Pizarra | `#151719` | barra lateral, tarjetas |
-| Lasca | `#24272A` | bordes, hover, separadores |
+| Grafito | `#0A0A0A` | lienzo del terminal (la barra lateral es `#000`) |
+| Pizarra | `#111112` | menús y paneles de vidrio |
+| Lasca | `#1D1E20` | bordes, hover, separadores |
 | Ceniza | `#878C92` | texto secundario, iconos en reposo |
 | Tiza | `#EDEEEF` | texto principal |
 | Ámbar | `#F0B429` | te necesita |
@@ -163,7 +163,7 @@ Ajustes, la paleta y Notas aparecen sin transición de página: solo el fundido 
 Modo claro: lienzo `#FAFAFA`, superficie `#F0F1F2`, línea `#DCDEE0`, texto `#121314`.
 
 ### Tipografía
-- **Interfaz**: Instrument Sans Variable en 12, 13, 15 y 20 px. Peso 450 para el cuerpo y 600 para los títulos.
+- **Interfaz**: Inter Variable en 11, 12, 13, 15 y 20 px. Peso 450 para el cuerpo y 600 para los títulos.
 - **Terminal**: JetBrains Mono 13 px, interlineado 1.25. Seleccionables: Geist Mono, Commit Mono y Cascadia Mono.
 
 ### Medidas
@@ -305,3 +305,25 @@ Referencia: los ajustes de T3 Code (MIT), leídos en su código (`apps/web/src/c
   - Ajustes › Actualizaciones busca, descarga con progreso y reinicia para instalar.
   - Antes de instalar se cierran las sesiones con calma, porque el instalador reemplaza también el ejecutable del host.
   - Al abrir Slate se busca en silencio (se puede apagar). Nunca se instala sin pedirlo.
+
+## 13. Fluidez, sistema visual y panel de cambios (Fase 10)
+Referencia: T3 Code (MIT), leído en su código para esta fase. Los avisos de licencia están en `THIRD_PARTY_NOTICES.md`; los archivos portados lo dicen en un comentario.
+
+- **GPU y fluidez**:
+  - WebGL solo en los terminales visibles (Chromium admite unos 16 contextos); uno oculto lo suelta y lo recupera al verse.
+  - La salida del pty viaja en lotes de ~6 ms y cada terminal recibe solo la suya.
+  - Ajustes › Avanzado: interruptor de aceleración por GPU con su estado real (`app.getGPUFeatureStatus()`); apagarla llama a `disableHardwareAcceleration()` antes de `ready` en el siguiente arranque. Las cachés de GPU se borran al cambiar de versión de Electron.
+- **Sistema visual**:
+  - Tokens en dos capas: los del tema (`border-base`, `accent-base`, `muted-base`) y los derivados con `color-mix` según el contraste (50–200 %).
+  - Vidrio (`.glass`: desenfoque, reflejo de 1 px, grano dentro del propio fondo) para menús, paleta, ajustes y avisos; "Reducir transparencia" lo vuelve sólido.
+  - `--ease-drawer` y duración ajustable de los paneles (0–400 ms) con vista previa.
+  - Un solo estado visible por sesión (`lib/status.ts`), latidos al compás (`startTime = 0`), bucles pausados con la ventana oculta o fuera de pantalla, tiempo relativo que cambia justo cuando el texto cambia, insignia en la barra de tareas con las sesiones que te necesitan.
+  - Avisos apilados (sonner) que admiten una acción.
+- **Panel de cambios** (`@pierre/diffs`, worker pool de 2–6, caché de 240):
+  - alcances (rama, sin guardar, último commit), lista o árbol, cambios por palabra, apilado o lado a lado, contexto desplegable, ocultar tests y carga de cada diff al acercarse;
+  - comentarios al agente por el margen (se escriben en su terminal con la cita de la línea);
+  - por archivo: copiar ruta, mostrar, abrir en VS Code (`vscode://`, nunca se ejecuta) y descartar;
+  - acciones de la rama con una tabla pura (`changes.logic.ts`), progreso dentro del botón y un diálogo para excluir archivos del commit, la subida o el PR.
+  - El backend de resaltado `highlights` no pinta el diff en este Electron: se usa el de shiki.
+- **Ajustes**: buscador (índice en `settingsIndex.ts`, con una prueba que exige que toda fila esté en él), atajos editables con aviso de conflicto, importación de temas de VS Code (fondo, texto, cursor, selección y los 16 ANSI) y, en Avanzado, la tabla de procesos del host y el acceso a sus registros.
+- **Instalador**: antes de instalar o desinstalar se detiene cualquier `slate.exe` (el host de sesiones es el mismo ejecutable), para que no quede un host viejo bloqueando los archivos.

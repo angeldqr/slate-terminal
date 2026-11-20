@@ -16,15 +16,23 @@ carpeta agrupa sus sesiones, y Slate te avisa cuando un agente te necesita o ter
   rama, en un worktree aparte, sin pisar a los demás.
 - **Tablero.** Todas las sesiones a la vista como tarjetas vivas: estado, rama, cambios y lo
   último que imprimió cada terminal. Se abre solo al lanzar varias tareas.
-- **Panel de cambios.** Lo que tocó cada sesión, con su diff resaltado. Desde ahí lo fusionas en
-  tu rama (un solo commit, sin créditos de agente), abres un PR o lo descartas.
+- **Panel de cambios.** Lo que tocó cada sesión, con su diff resaltado por palabras, apilado o
+  lado a lado, en lista o en árbol de carpetas. Compara toda la rama, lo que falta por guardar o
+  el último commit. Por archivo: copiar la ruta, mostrarlo, abrirlo en VS Code o descartarlo.
+  Con el "+" del margen le comentas una línea al agente y le llega a su terminal. Desde ahí
+  fusionas en tu rama (un solo commit, sin créditos de agente), subes la rama, abres un PR o
+  descartas, eligiendo qué archivos entran.
 - **Orquestación.** Claude Code recibe herramientas de Slate por MCP para lanzar tareas, leer la
   pantalla de otra sesión, escribirle, esperar a que termine y avisar a quien le encargó algo.
 - **Sesiones que sobreviven.** Al cerrar Slate, las terminales siguen trabajando en segundo
   plano. Al abrirlo vuelven con lo que imprimieron y en la misma disposición.
-- **A tu medida.** Temas en grises (Grafito, Carbón, Pizarra, Humo; Tiza, Papel, Niebla), tamaño
-  de la interfaz, fuente instalada, espaciado, grosor, shell, tamaño del código de los diffs y
-  ancho del panel de cambios.
+- **Fluida.** Los terminales se dibujan con WebGL solo mientras se ven, la salida llega en lotes
+  y la ventana se compone en la GPU (se puede apagar en Ajustes › Avanzado, que además muestra
+  la memoria y la CPU de cada terminal).
+- **A tu medida.** Temas en grises (Grafito, Carbón, Pizarra, Humo; Tiza, Papel, Niebla) con
+  vidrio, contraste y velocidad de paneles ajustables; tamaño de la interfaz, fuente instalada,
+  espaciado, grosor, shell, colores importados de un tema de VS Code, tamaño del código de los
+  diffs, atajos que cambias tú y un buscador que te lleva a cada ajuste.
 - **Actualizaciones con un clic** desde Ajustes, avisos del sistema y seguir en la bandeja.
 
 ![Panel de cambios de una sesión en su rama](docs/screenshots/cambios.png)
