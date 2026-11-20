@@ -1,7 +1,8 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from 'motion/react'
 import { GitBranchIcon, PaperPlaneTiltIcon, XIcon } from '@phosphor-icons/react'
-import { ago } from '@renderer/lib/time'
+import { useAgo } from '@renderer/lib/time'
+import { PulseDot, useOnscreen } from '@renderer/components/ui/motion-bits'
 import { cn } from '@renderer/lib/utils'
 import { openTask } from '@renderer/overlays'
 import { shortcutKeys, useShortcutsRev } from '@renderer/shortcuts'
@@ -52,8 +53,8 @@ export function Board(): React.JSX.Element {
   const diffStats = useStore((s) => s.diffStats)
   const [filter, setFilter] = useState<Filter>('all')
   const [screens, setScreens] = useState<Record<string, string>>({})
-  const [now, setNow] = useState(() => Date.now())
   const root = useRef<HTMLDivElement>(null)
+  const panelMs = useStore((s) => s.prefs.panelMs) // la misma velocidad que los demás paneles
 
   const ids = sessions.map((s) => s.id).join(',')
   // Lo último de cada pantalla, cada segundo (solo mientras el tablero está abierto).
@@ -104,12 +105,6 @@ export function Board(): React.JSX.Element {
     if (!document.activeElement?.closest('.xterm')) root.current?.focus()
   }, [])
 
-  // El reloj de "hace 3 min": cada 15 s basta para una escala de minutos.
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 15_000)
-    return () => clearInterval(timer)
-  }, [])
-
   const counts = Object.fromEntries(
     FILTERS.map((f) => [f.id, sessions.filter((s) => f.match(s.status)).length])
   ) as Record<Filter, number>
@@ -130,7 +125,7 @@ export function Board(): React.JSX.Element {
         initial={{ opacity: 0, scale: 0.985 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.985 }}
-        transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+        transition={{ duration: panelMs / 1000, ease: [0.32, 0.72, 0, 1] }}
         onKeyDown={(e) => e.key === 'Escape' && toggleBoard()}
         className="absolute inset-0 z-10 flex flex-col bg-background outline-none"
       >
@@ -227,7 +222,6 @@ export function Board(): React.JSX.Element {
                           index={i}
                           screen={screens[s.id] ?? ''}
                           stats={diffStats[s.id]}
-                          now={now}
                         />
                       ))}
                     </AnimatePresence>
@@ -247,19 +241,21 @@ const Card = memo(function Card({
   session: s,
   index,
   screen,
-  stats,
-  now
+  stats
 }: {
   session: Session
   index: number
   screen: string
   stats?: { add: number; del: number }
-  now: number
 }): React.JSX.Element {
+  const [ref, onscreen] = useOnscreen<HTMLButtonElement>()
+  const since = useAgo(s.since)
   const status = STATUS[s.status]
   const lines = screen.split('\n').slice(-LINES)
   return (
     <motion.button
+      ref={ref}
+      data-offscreen={onscreen ? undefined : ''}
       initial={{ opacity: 0, y: 10, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, scale: 0.98 }}
@@ -271,7 +267,7 @@ const Card = memo(function Card({
       onClick={() => openFromBoard(s.id)}
       data-status={s.status}
       className={cn(
-        'group relative flex flex-col rounded-lg border border-border bg-sidebar/50 text-left transition-[border-color,box-shadow,translate] duration-200 ease-out-quint outline-none hover:-translate-y-0.5 hover:border-muted-foreground/40 hover:shadow-[0_12px_32px_-16px_rgb(0_0_0/0.5)] focus-visible:border-foreground',
+        'group relative flex flex-col rounded-lg border border-border bg-sidebar/50 text-left shadow-[inset_0_1px_0_var(--highlight)] transition-[border-color,box-shadow,translate] duration-200 ease-drawer outline-none hover:-translate-y-0.5 hover:border-muted-foreground/40 hover:shadow-[0_12px_32px_-16px_rgb(0_0_0/0.5)] focus-visible:border-foreground',
         s.status === 'working' && 'beam',
         s.status === 'attention' && 'border-attention/60',
         s.status === 'exited' && 'opacity-60'
@@ -281,9 +277,13 @@ const Card = memo(function Card({
         <SessionIcon kind={s.kind} size={15} />
         <span className="min-w-0 flex-1 truncate font-medium">{s.title}</span>
         <span className="flex shrink-0 items-center gap-1.5 text-[12px] text-muted-foreground">
-          <span className={cn('size-1.5 rounded-full', status.dot)} />
+          {s.status === 'working' ? (
+            <PulseDot className={status.dot} />
+          ) : (
+            <span className={cn('size-1.5 rounded-full', status.dot)} />
+          )}
           {status.label}
-          <span className="ml-1 text-muted-foreground/60 tabular-nums">{ago(s.since, now)}</span>
+          <span className="ml-1 text-muted-foreground/60 tabular-nums">{since}</span>
         </span>
       </div>
       <div className="flex h-5 items-center gap-1.5 px-3.5 pt-1 text-[12px] text-muted-foreground">

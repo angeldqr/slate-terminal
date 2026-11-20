@@ -246,8 +246,12 @@ body {
   height: 6px;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--accent);
+  background: transparent; /* escondida hasta que el puntero está encima */
   border-radius: 3px;
+  transition: background-color 200ms;
+}
+:hover::-webkit-scrollbar-thumb {
+  background: var(--accent);
 }
 ::-webkit-scrollbar-track,
 ::-webkit-scrollbar-corner,
@@ -313,7 +317,7 @@ body {
   border-radius: 2px;
   transition: background-color 160ms var(--ease-out-quint);
 }
-[data-status='working'] > .chalk {
+[data-state='working'] > .chalk {
   background: linear-gradient(
     to bottom,
     var(--border) 0%,
@@ -321,16 +325,16 @@ body {
     var(--border) 100%
   );
   background-size: 100% 300%;
-  animation: chalk-shimmer 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation: chalk-shimmer 1.6s steps(16, end) infinite; /* por pasos: cuesta menos pintar */
 }
-[data-status='attention'] > .chalk {
+[data-state='attention'] > .chalk {
   background: var(--attention);
   animation: chalk-pulse 500ms var(--ease-out-quint);
 }
-[data-status='error'] > .chalk {
+[data-state='error'] > .chalk {
   background: var(--destructive);
 }
-[data-unread='true'] > .chalk {
+[data-state='unread'] > .chalk {
   background: var(--unread);
 }
 
@@ -371,4 +375,15 @@ body {
   40% {
     background: color-mix(in oklab, var(--foreground) 9%, transparent);
   }
+}
+
+/* Con la ventana oculta o el elemento fuera de pantalla, los bucles se detienen. */
+:root[data-hidden] *,
+:root[data-hidden] *::before,
+:root[data-hidden] *::after,
+[data-offscreen],
+[data-offscreen]::before,
+[data-offscreen]::after,
+[data-offscreen] * {
+  animation-play-state: paused !important;
 }

@@ -228,7 +228,10 @@ export async function init(): Promise<void> {
   slate.update.state().then((update) => setState({ update }))
   const offUpdate = slate.update.onState((update) => {
     if (update.status === 'available' && state.update.status !== 'available') {
-      flashHint(`Hay una versión nueva de Slate: ${update.version}`)
+      flashHint(`Hay una versión nueva de Slate: ${update.version}`, {
+        label: 'Ver',
+        run: () => setOverlay('settings')
+      })
     }
     setState({ update })
   })
@@ -473,8 +476,11 @@ export function setDiffStats(id: string, add: number, del: number): void {
 export const setOverlay = (overlay: Overlay | null): void => setState({ overlay })
 
 // Aviso breve: un toast apilado abajo a la derecha que se va solo.
-export function flashHint(hint: string): void {
-  toast(hint, { duration: 3500 })
+export function flashHint(hint: string, action?: { label: string; run: () => void }): void {
+  toast(hint, {
+    duration: action ? 8000 : 3500,
+    action: action && { label: action.label, onClick: action.run }
+  })
 }
 
 // Agrupa sesiones por vista en el orden en que aparecen: así se muestran en la barra lateral.

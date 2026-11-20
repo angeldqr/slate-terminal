@@ -615,9 +615,17 @@ await win.keyboard.press('Escape')
 await win.waitForFunction(() => !document.querySelector('[data-blendy-to]'))
 await win.keyboard.press('Control+Shift+P')
 await win.keyboard.type('cambiar tema')
-await win.keyboard.press('Enter')
+await win.keyboard.press('Enter') // abre el submenú de temas
+await win.getByRole('option', { name: /^Oscuro/ }).waitFor()
+await win
+  .getByRole('option', { name: /^Oscuro/ })
+  .first()
+  .click()
 await win.waitForFunction(() => document.documentElement.dataset.theme === 'dark')
 assert.equal(await overlayOpen(), 1, 'la paleta sigue abierta para ver el cambio')
+await win.keyboard.press('Backspace') // con el campo vacío, vuelve a la lista
+await win.getByRole('option', { name: /Añadir carpeta/ }).waitFor()
+assert.equal(await overlayOpen(), 1, 'Retroceso vuelve sin cerrar la paleta')
 await win.keyboard.press('Escape')
 await win.waitForFunction(() => !document.querySelector('[data-blendy-to]'))
 await win.mouse.move(600, 500)
@@ -887,10 +895,11 @@ writeFileSync(
 await first.locator('nav [data-status]').filter({ hasText: 'anadir-busqueda' }).first().click()
 await first.keyboard.press('Control+Shift+P')
 await first.keyboard.type('cambiar tema')
-await first.keyboard.press('Enter') // claro → oscuro
+await first.keyboard.press('Enter') // abre el submenú de temas
+await first.getByRole('option', { name: /^Oscuro/ }).first().click() // claro → oscuro
 await first.waitForFunction(() => document.documentElement.dataset.theme === 'dark')
-await first.keyboard.press('Escape')
-await panel.getByRole('button', { name: /README\.md/ }).click()
+await first.keyboard.press('Escape') // vuelve a la lista
+await first.keyboard.press('Escape') // cierra la paleta
 await panel.getByText('Con una línea nueva.').waitFor({ timeout: 8000 })
 await first.waitForTimeout(700)
 await shot2('cambios-oscuro')

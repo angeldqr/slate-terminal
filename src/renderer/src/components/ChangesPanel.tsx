@@ -20,7 +20,6 @@ import {
   FilePlusIcon,
   GitBranchIcon,
   GitCommitIcon,
-  GitDiffIcon,
   GitMergeIcon,
   GitPullRequestIcon,
   MinusIcon,
@@ -32,6 +31,7 @@ import {
 import { cn } from '@renderer/lib/utils'
 import { DiffPool, DiffView } from './diffs/DiffView'
 import { Skeleton } from './ui/skeleton'
+import { Empty as EmptyCards } from './ui/empty'
 import {
   closeSession,
   flashHint,
@@ -708,7 +708,7 @@ function PanelBody({
         setChanges((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next))
         setTick((t) => t + 1)
         // Los cuatro primeros archivos llegan desplegados; el resto se carga al abrirlos.
-        if (next && seeded.current !== scope) {
+        if (next?.files.length && seeded.current !== scope) {
           seeded.current = scope
           setExpanded(new Set(next.files.slice(0, 4).map((f) => f.path)))
         }
@@ -898,12 +898,8 @@ function PanelBody({
 
 function Empty({ title, text }: { title: string; text: string }): React.JSX.Element {
   return (
-    <div className="flex flex-col items-center px-8 pt-20 text-center">
-      <span className="grid size-10 place-items-center rounded-full border border-border text-muted-foreground">
-        <GitDiffIcon size={18} />
-      </span>
-      <p className="mt-4 text-[15px] font-medium">{title}</p>
-      <p className="mt-1.5 max-w-64 leading-relaxed text-muted-foreground">{text}</p>
+    <div className="flex justify-center pt-16">
+      <EmptyCards title={title} text={text} compact />
     </div>
   )
 }

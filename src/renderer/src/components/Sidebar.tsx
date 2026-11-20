@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { MotionConfig, motion } from 'motion/react'
 import {
   CaretRightIcon,
@@ -11,7 +11,9 @@ import {
   TerminalWindowIcon
 } from '@phosphor-icons/react'
 import { cn } from '@renderer/lib/utils'
-import { ago } from '@renderer/lib/time'
+import { useAgo } from '@renderer/lib/time'
+import { resolveStatus } from '@renderer/lib/status'
+import { Collapse, PulseDot, useSyncedAnimation } from '@renderer/components/ui/motion-bits'
 import {
   closeSession,
   groupByView,
@@ -110,18 +112,19 @@ function DangerItem({
   )
 }
 
-// Hace cuánto está en su estado; se refresca cada 30 s.
+// Hace cuánto está en su estado; cambia justo cuando el texto cambia.
 function Since({ since }: { since: number }): React.JSX.Element {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 30_000)
-    return () => clearInterval(t)
-  }, [])
   return (
     <span className="ml-auto shrink-0 pl-1 text-3xs text-muted-foreground/60 tabular-nums">
-      {ago(since, now)}
+      {useAgo(since)}
     </span>
   )
+}
+
+// El trazo de tiza de la izquierda; sus animaciones laten al compás de las demás.
+function Chalk({ state }: { state: string }): React.JSX.Element {
+  const ref = useSyncedAnimation<HTMLSpanElement>(state)
+  return <span ref={ref} className="chalk" />
 }
 
 // `index`: su posición en el grupo, para que las filas que llegan juntas entren escalonadas.
@@ -146,6 +149,9 @@ function SessionRow({
   // Solo tiene sentido traerla junto al panel activo si está en otra vista.
   const elsewhere = useStore((s) => !!s.activeId && viewOf(s, s.activeId) !== viewOf(s, session.id))
 
+  // Un solo estado visible (lib/status.ts); lo que no es de ahora, a media luz.
+  const shownState = resolveStatus(session)
+
   const finishRename = (value: string): void => {
     if (!cancelled.current) renameSession(session.id, value)
     cancelled.current = false
@@ -160,6 +166,7 @@ function SessionRow({
           transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
           data-status={session.status}
           data-unread={session.unread}
+          data-state={shownState}
           aria-current={active ? 'true' : undefined}
           onClick={() => selectSession(session.id)}
           onDoubleClick={() => setEditing('direct')}
@@ -169,11 +176,11 @@ function SessionRow({
             rowClass,
             'pl-7 animate-in duration-200 ease-out-quint fill-mode-backwards fade-in-0 slide-in-from-left-1',
             session.worktree && 'h-auto min-h-7 py-1',
-            active && 'bg-accent hover:bg-accent',
-            session.status === 'exited' && 'text-muted-foreground'
+            active ? 'bg-accent hover:bg-accent' : 'opacity-75 hover:opacity-100',
+            shownState === 'exited' && 'text-muted-foreground'
           )}
         >
-          <span className="chalk" />
+          <Chalk state={shownState} />
           <SessionIcon kind={session.kind} />
           {parentTitle && (
             <ArrowBendDownRightIcon
@@ -217,6 +224,7 @@ function SessionRow({
               )}
             </span>
           )}
+          {!editing && shownState === 'working' && <PulseDot className="ml-auto bg-foreground" />}
           {!editing && <Since since={session.since} />}
         </motion.div>
       </ContextMenuTrigger>
@@ -351,7 +359,9 @@ function FolderGroup({ project }: { project: Project }): React.JSX.Element {
           />
         </ContextMenuContent>
       </ContextMenu>
-      {project.open && <SessionList sessions={sessions} />}
+      <Collapse open={project.open}>
+        <SessionList sessions={sessions} />
+      </Collapse>
     </section>
   )
 }
@@ -395,7 +405,7 @@ function Activity(): React.JSX.Element {
     >
       {working > 0 && (
         <span className="flex items-center gap-1 tabular-nums">
-          <span className="size-1.5 animate-breathe rounded-full bg-foreground" />
+          <PulseDot className="bg-foreground" />
           {working}
         </span>
       )}

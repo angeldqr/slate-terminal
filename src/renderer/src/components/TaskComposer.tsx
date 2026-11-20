@@ -13,6 +13,8 @@ import { closeOverlay } from '@renderer/overlays'
 import { baseName, currentFolder, launchTasks, setPrefs, useStore } from '@renderer/store'
 import type { SessionKind } from '../../../shared/types'
 import { SessionIcon } from './SessionIcon'
+import { Kbd } from './ui/kbd'
+import { AnimatedHeight } from './ui/motion-bits'
 import { GlowingEffect } from './ui/glowing-effect'
 import { PlaceholdersAndVanishInput } from './ui/placeholders-and-vanish-input'
 import {
@@ -118,17 +120,19 @@ export function TaskComposer(): React.JSX.Element {
         <h2 className="text-[20px] font-semibold tracking-tight">
           ¿Qué hacemos en {baseName(folder)}?
         </h2>
-        <p className="mt-1 text-muted-foreground">
-          {!selected.length
-            ? 'Elige al menos un agente para lanzar la tarea.'
-            : queue.length
-              ? 'Cada tarea sale en su propia rama y el tablero se abre para verlas trabajar a la vez.'
-              : selected.length > 1
-                ? 'Cada agente la hace en su propia rama; luego comparas y te quedas con la mejor.'
-                : isRepo
-                  ? 'Elige uno o varios agentes. Con Ctrl+Enter apartas otra tarea para lanzarlas juntas.'
-                  : 'Elige uno o varios agentes.'}
-        </p>
+        <AnimatedHeight>
+          <p className="mt-1 text-muted-foreground">
+            {!selected.length
+              ? 'Elige al menos un agente para lanzar la tarea.'
+              : queue.length
+                ? 'Cada tarea sale en su propia rama y el tablero se abre para verlas trabajar a la vez.'
+                : selected.length > 1
+                  ? 'Cada agente la hace en su propia rama; luego comparas y te quedas con la mejor.'
+                  : isRepo
+                    ? 'Elige uno o varios agentes. Con Ctrl+Enter apartas otra tarea para lanzarlas juntas.'
+                    : 'Elige uno o varios agentes.'}
+          </p>
+        </AnimatedHeight>
 
         <div className="relative mt-5 rounded-lg border border-border bg-background/60">
           <GlowingEffect
@@ -203,7 +207,8 @@ export function TaskComposer(): React.JSX.Element {
                     key={a.id}
                     className={cn(
                       'flex items-center rounded-sm transition-colors duration-120',
-                      n > 0 && 'bg-accent ring-1 ring-muted-foreground/30'
+                      n > 0 &&
+                        'bg-accent shadow-[inset_0_1px_0_var(--highlight)] ring-1 ring-muted-foreground/30'
                     )}
                   >
                     <motion.button
@@ -270,6 +275,20 @@ export function TaskComposer(): React.JSX.Element {
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+          <span className="hidden items-center gap-3 px-2 text-2xs sm:flex">
+            <span className="flex items-center gap-1">
+              <Kbd>↵</Kbd> lanzar
+            </span>
+            {isRepo && (
+              <span className="flex items-center gap-1">
+                <Kbd>Ctrl</Kbd>
+                <Kbd>↵</Kbd> apartar
+              </span>
+            )}
+            <span className="flex items-center gap-1">
+              <Kbd>Esc</Kbd> cerrar
+            </span>
+          </span>
           <span className="flex items-center gap-1.5 px-2">
             {branch === undefined ? null : isRepo ? (
               <>

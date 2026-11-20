@@ -1,5 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
+  CaretRightIcon,
+  CheckIcon,
   CircleHalfIcon,
   FolderSimplePlusIcon,
   PaperPlaneTiltIcon,
@@ -21,7 +23,8 @@ import { Keys } from './Keys'
 import { Kbd } from '@renderer/components/ui/kbd'
 import { Settings } from './Settings'
 import { TaskComposer } from './TaskComposer'
-import { cycleTheme, THEMES } from '@renderer/theme'
+import { setTheme, THEMES } from '@renderer/theme'
+import { PALETTES } from '../../../shared/palettes'
 import { closeOverlay, openTask } from '@renderer/overlays'
 import { keysOf, SHORTCUTS, shortcutKeys, useShortcutsRev } from '@renderer/shortcuts'
 import {
@@ -74,16 +77,62 @@ function NewSessionGroup({
   )
 }
 
-// Se queda abierta al cambiar el tema: así se ve el cambio y se puede seguir rotando.
-function ThemeItem(): React.JSX.Element {
+// Abre el submenú de temas; Retroceso (con el campo vacío) o Escape vuelven a la lista.
+function ThemeItem({ onOpen }: { onOpen: () => void }): React.JSX.Element {
   const theme = useStore((s) => s.prefs.theme)
   return (
-    <CommandItem value="cambiar tema claro oscuro automático" onSelect={cycleTheme}>
+    <CommandItem value="cambiar tema claro oscuro automático" onSelect={onOpen}>
       <CircleHalfIcon /> Cambiar tema
-      <span className="ml-auto text-[12px] text-muted-foreground">
+      <span className="ml-auto flex items-center gap-1 text-[12px] text-muted-foreground">
         {THEMES.find((t) => t.id === theme)?.label}
+        <CaretRightIcon size={12} />
       </span>
     </CommandItem>
+  )
+}
+
+// El submenú: el modo y el tema gris de cada modo. Se queda abierto para ver el cambio y seguir.
+function ThemePage(): React.JSX.Element {
+  const theme = useStore((s) => s.prefs.theme)
+  const darkPalette = useStore((s) => s.prefs.darkPalette)
+  const lightPalette = useStore((s) => s.prefs.lightPalette)
+  const mark = (on: boolean): React.JSX.Element | null =>
+    on ? <CheckIcon className="ml-auto" /> : null
+  return (
+    <>
+      <CommandGroup heading="Modo">
+        {THEMES.map((t) => (
+          <CommandItem key={t.id} value={`modo ${t.label}`} onSelect={() => setTheme(t.id)}>
+            {t.label}
+            {mark(theme === t.id)}
+          </CommandItem>
+        ))}
+      </CommandGroup>
+      <CommandGroup heading="Tema oscuro">
+        {PALETTES.filter((p) => p.dark).map((p) => (
+          <CommandItem
+            key={p.id}
+            value={`oscuro ${p.label}`}
+            onSelect={() => setTheme({ darkPalette: p.id })}
+          >
+            {p.label}
+            {mark(darkPalette === p.id)}
+          </CommandItem>
+        ))}
+      </CommandGroup>
+      <CommandGroup heading="Tema claro">
+        {PALETTES.filter((p) => !p.dark).map((p) => (
+          <CommandItem
+            key={p.id}
+            value={`claro ${p.label}`}
+            onSelect={() => setTheme({ lightPalette: p.id })}
+          >
+            {p.label}
+            {mark(lightPalette === p.id)}
+          </CommandItem>
+        ))}
+      </CommandGroup>
+    </>
   )
 }
 
@@ -103,66 +152,92 @@ function Palette(): React.JSX.Element {
   const sessions = useStore(sidebarOrder)
   const projects = useStore((s) => s.projects)
   const folder = useStore(currentFolder)
+  // Páginas de la paleta: la lista y el submenú de temas. Retroceso con el campo vacío vuelve.
+  const [page, setPage] = useState<'root' | 'theme'>('root')
+  const [search, setSearch] = useState('')
+  const go = (next: 'root' | 'theme'): void => {
+    setPage(next)
+    setSearch('')
+  }
 
   return (
     <Command
-      onKeyDown={(e) => e.key === 'Escape' && closeOverlay()}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') return page === 'root' ? closeOverlay() : go('root')
+        if (e.key === 'Backspace' && page !== 'root' && !search) {
+          e.preventDefault()
+          go('root')
+        }
+      }}
       className="bg-transparent [&_[cmdk-group-heading]]:text-[12px]"
     >
-      <CommandInput autoFocus placeholder="Busca una sesión, carpeta o acción…" />
+      <CommandInput
+        autoFocus
+        value={search}
+        onValueChange={setSearch}
+        placeholder={page === 'theme' ? 'Tema…' : 'Busca una sesión, carpeta o acción…'}
+      />
       <CommandList className="max-h-[min(420px,60vh)]">
         <CommandEmpty>Nada coincide.</CommandEmpty>
-        {sessions.length > 0 && (
-          <CommandGroup heading="Sesiones">
-            {sessions.map((s) => (
-              <CommandItem
-                key={s.id}
-                value={`sesión ${s.title} ${folderName(s.cwd)} ${s.id}`}
-                onSelect={pick(() => selectSession(s.id))}
-              >
-                <SessionIcon kind={s.kind} />
-                {s.title}
-                <span className="ml-auto text-[12px] text-muted-foreground">
-                  {folderName(s.cwd)}
-                </span>
-              </CommandItem>
-            ))}
-          </CommandGroup>
+        {page === 'theme' ? (
+          <ThemePage />
+        ) : (
+          <>
+            {sessions.length > 0 && (
+              <CommandGroup heading="Sesiones">
+                {sessions.map((s) => (
+                  <CommandItem
+                    key={s.id}
+                    value={`sesión ${s.title} ${folderName(s.cwd)} ${s.id}`}
+                    onSelect={pick(() => selectSession(s.id))}
+                  >
+                    <SessionIcon kind={s.kind} />
+                    {s.title}
+                    <span className="ml-auto text-[12px] text-muted-foreground">
+                      {folderName(s.cwd)}
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+            {folder && <NewSessionGroup folder={folder} withKeys />}
+            {/* Con una sola carpeta, el grupo de nueva sesión ya la cubre. */}
+            {projects.length > 1 && (
+              <CommandGroup heading="Carpetas">
+                {projects.map((p) => (
+                  <CommandItem
+                    key={p.path}
+                    value={`carpeta ${p.name} ${p.path}`}
+                    onSelect={pick(() => newSession(p.path))}
+                  >
+                    <TerminalWindowIcon /> Nueva shell en {p.name}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+            <CommandSeparator />
+            <CommandGroup heading="Acciones">
+              <AddFolderItem />
+              <ThemeItem onOpen={() => go('theme')} />
+              {paletteActions.map((a) => (
+                <CommandItem
+                  key={a.id}
+                  value={a.label}
+                  onSelect={pick(a.run)}
+                  className={cn(
+                    a.danger && 'text-destructive data-[selected=true]:text-destructive'
+                  )}
+                >
+                  {a.icon && <a.icon className={cn(a.danger && 'text-destructive')} />}
+                  {a.label}
+                  <CommandShortcut>
+                    <Keys combo={keysOf(a)} />
+                  </CommandShortcut>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </>
         )}
-        {folder && <NewSessionGroup folder={folder} withKeys />}
-        {/* Con una sola carpeta, el grupo de nueva sesión ya la cubre. */}
-        {projects.length > 1 && (
-          <CommandGroup heading="Carpetas">
-            {projects.map((p) => (
-              <CommandItem
-                key={p.path}
-                value={`carpeta ${p.name} ${p.path}`}
-                onSelect={pick(() => newSession(p.path))}
-              >
-                <TerminalWindowIcon /> Nueva shell en {p.name}
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        )}
-        <CommandSeparator />
-        <CommandGroup heading="Acciones">
-          <AddFolderItem />
-          <ThemeItem />
-          {paletteActions.map((a) => (
-            <CommandItem
-              key={a.id}
-              value={a.label}
-              onSelect={pick(a.run)}
-              className={cn(a.danger && 'text-destructive data-[selected=true]:text-destructive')}
-            >
-              {a.icon && <a.icon className={cn(a.danger && 'text-destructive')} />}
-              {a.label}
-              <CommandShortcut>
-                <Keys combo={keysOf(a)} />
-              </CommandShortcut>
-            </CommandItem>
-          ))}
-        </CommandGroup>
       </CommandList>
       {/* Pie con las teclas que mueven la paleta. */}
       <footer className="flex h-8 items-center gap-4 border-t border-border px-3 text-2xs text-muted-foreground">
@@ -173,8 +248,13 @@ function Palette(): React.JSX.Element {
         <span className="flex items-center gap-1.5">
           <Kbd>↵</Kbd> elegir
         </span>
+        {page !== 'root' && (
+          <span className="flex items-center gap-1.5">
+            <Kbd>⌫</Kbd> volver
+          </span>
+        )}
         <span className="ml-auto flex items-center gap-1.5">
-          <Kbd>Esc</Kbd> cerrar
+          <Kbd>Esc</Kbd> {page === 'root' ? 'cerrar' : 'volver'}
         </span>
       </footer>
     </Command>

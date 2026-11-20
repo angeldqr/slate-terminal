@@ -61,6 +61,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Slider } from './ui/slider'
 import { Switch } from './ui/switch'
 import { Keys } from './Keys'
+import { PulseDot } from './ui/motion-bits'
 import { searchSettings, type Entry as Found, type SectionId } from '@renderer/settingsIndex'
 import { version } from '../../../../package.json'
 
@@ -1437,12 +1438,11 @@ function Advanced(): React.JSX.Element {
         >
           {info && (
             <span className="flex shrink-0 items-center gap-2 text-[12px] text-muted-foreground">
-              <span
-                className={cn(
-                  'size-1.5 rounded-full',
-                  info.host ? 'animate-breathe bg-foreground' : 'bg-destructive'
-                )}
-              />
+              {info.host ? (
+                <PulseDot className="bg-foreground" />
+              ) : (
+                <span className="size-1.5 rounded-full bg-destructive" />
+              )}
               {!info.host
                 ? 'Sin conexión'
                 : count === 1

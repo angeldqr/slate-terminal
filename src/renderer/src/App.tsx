@@ -10,6 +10,7 @@ import { Board } from './components/Board'
 import { AnimatePresence } from 'motion/react'
 import { Keys } from './components/Keys'
 import { DottedGlowBackground } from './components/ui/dotted-glow-background'
+import { Empty as EmptyState } from './components/ui/empty'
 import { initMotion, reducedMotion } from './motion'
 import { openTask } from './overlays'
 import { installShortcuts, shortcutKeys, useShortcutsRev } from './shortcuts'
@@ -43,32 +44,14 @@ function Empty(): React.JSX.Element {
           speedScale={0.35}
         />
       )}
-      <div className="relative max-w-sm px-6 text-center">
-        {/* Tres tarjetas en abanico: lo que Slate pone en pantalla cuando hay agentes. */}
-        <div aria-hidden className="relative mx-auto mb-8 h-20 w-40">
-          {[-9, 0, 9].map((deg, i) => (
-            <div
-              key={deg}
-              style={{ rotate: `${deg}deg`, translate: `${deg * 3.2}px ${Math.abs(deg) * 0.7}px` }}
-              className={cn(
-                'glass absolute inset-x-6 top-0 h-16 rounded-lg p-2.5',
-                i === 1 && 'z-10'
-              )}
-            >
-              <div className="h-1.5 w-1/2 rounded-full bg-foreground/25" />
-              <div className="mt-2 h-1.5 w-3/4 rounded-full bg-foreground/10" />
-              <div className="mt-1.5 h-1.5 w-2/5 rounded-full bg-foreground/10" />
-            </div>
-          ))}
-        </div>
-        <h1 className="text-[20px] font-semibold tracking-tight">
-          {firstProject ? `Todo listo en ${firstProject.name}` : 'Empieza por una carpeta'}
-        </h1>
-        <p className="mt-2 leading-relaxed text-muted-foreground">
-          {firstProject
+      <EmptyState
+        title={firstProject ? `Todo listo en ${firstProject.name}` : 'Empieza por una carpeta'}
+        text={
+          firstProject
             ? 'Abre una shell o dale una tarea a uno o varios agentes. Slate te avisa cuando alguno te necesite.'
-            : 'Slate agrupa tus shells y agentes por proyecto y te avisa cuando alguno te necesita.'}
-        </p>
+            : 'Slate agrupa tus shells y agentes por proyecto y te avisa cuando alguno te necesita.'
+        }
+      >
         <div className="mt-6 flex justify-center gap-2">
           <button
             onClick={primary.run}
@@ -90,7 +73,7 @@ function Empty(): React.JSX.Element {
         <p className="mt-8 flex items-center justify-center gap-2 text-[12px] text-muted-foreground">
           <Keys combo={shortcutKeys('palette')} /> para buscar cualquier acción
         </p>
-      </div>
+      </EmptyState>
     </div>
   )
 }
@@ -110,6 +93,18 @@ function App(): React.JSX.Element {
   const solid = useStore((s) => s.prefs.solid)
   const panelMs = useStore((s) => s.prefs.panelMs)
   useEffect(() => applyLook({ contrast, solid, panelMs }), [contrast, solid, panelMs])
+
+  // Con la ventana oculta los bucles de animación se detienen (styles.css).
+  useEffect(() => {
+    const sync = (): void =>
+      void document.documentElement.toggleAttribute(
+        'data-hidden',
+        document.visibilityState === 'hidden'
+      )
+    sync()
+    document.addEventListener('visibilitychange', sync)
+    return () => document.removeEventListener('visibilitychange', sync)
+  }, [])
 
   // Cuántas sesiones te necesitan, también en el icono de la barra de tareas.
   const waiting = useStore((s) => s.sessions.filter((x) => needsYou(x.status)).length)

@@ -102,9 +102,3 @@ export function setTheme(
     )
     .catch(() => {}) // otra transición la interrumpió: el tema ya cambió igual
 }
-
-// La paleta rota entre los tres.
-export function cycleTheme(): void {
-  const i = THEMES.findIndex((t) => t.id === getState().prefs.theme)
-  setTheme(THEMES[(i + 1) % THEMES.length].id)
-}
