@@ -1,11 +1,15 @@
 import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { isAbsolute, join, relative } from 'node:path'
+import { app } from 'electron'
 import * as pty from 'node-pty'
 import { AGENTS } from './agents'
 import { nextStatus, type StatusEvent } from './status'
-import type { SessionInfo, SessionKind } from '../shared/types'
+import type { SessionInfo, SessionKind, SessionOpts, SessionWorktree } from '../shared/types'
 import { writeHookSettings, removeHookSettings } from './hooks'
 import { freeTitle, samePath } from './titles'
+import { createWorktree, removeWorktree, repoRoot, slug, worktreeNames } from './git'
 
 type Session = SessionInfo & { pty: pty.IPty; buffer: string; quiet?: NodeJS.Timeout }
 
@@ -51,36 +55,99 @@ const OSC = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g
 // eslint-disable-next-line no-control-regex
 const NOTIFY = /\x1b\](?:9|777);/
 
-export function createSession(cwd: string, kind: SessionKind = 'shell'): SessionInfo {
+// La tarea viaja en un archivo y la shell la lee: así comillas y saltos de línea llegan intactos
+// al agente, sin pasar por las reglas de citado de la línea de comandos.
+// ponytail: en Windows PowerShell 5.1 las comillas dobles dentro de la tarea pueden partirse al
+// pasar a un ejecutable; con pwsh 7 (el que Slate prefiere) llegan bien.
+const promptDir = join(app.getPath('userData'), 'prompts')
+function promptArg(id: string, prompt: string): string {
+  mkdirSync(promptDir, { recursive: true })
+  const file = join(promptDir, `${id}.txt`)
+  writeFileSync(file, prompt)
+  // -Encoding UTF8: Windows PowerShell 5.1 leería el archivo como ANSI y rompería ñ y tildes.
+  return isWin
+    ? `(Get-Content -Raw -Encoding UTF8 -LiteralPath ${quote(file)})`
+    : `"$(cat ${quote(file)})"`
+}
+const removePrompt = (id: string): void => rmSync(join(promptDir, `${id}.txt`), { force: true })
+
+// Una rama propia para la sesión, con el nombre sacado de la tarea (o del agente).
+// Si se abrió desde una subcarpeta del repo, arranca en la misma subcarpeta dentro del worktree.
+async function isolate(cwd: string, name: string): Promise<SessionWorktree> {
+  const root = await repoRoot(cwd)
+  if (!root)
+    throw new Error('Esta carpeta no es un repositorio git: no se puede aislar en una rama.')
+  const wt = await createWorktree(root, freeTitle(slug(name), await worktreeNames(root), '-'))
+  return { project: cwd, root, ...wt }
+}
+
+export async function createSession(
+  cwd: string,
+  kind: SessionKind = 'shell',
+  opts: SessionOpts = {}
+): Promise<SessionInfo> {
   const id = randomUUID()
   const agent = AGENTS.find((a) => a.id === kind)
+  const worktree = opts.isolate
+    ? await isolate(cwd, opts.prompt || agent?.name || 'shell')
+    : undefined
+  // La misma subcarpeta dentro del worktree si existe ahí (una carpeta sin versionar no existe).
+  const sub = worktree ? relative(worktree.root, cwd) : ''
+  const inside = !!sub && !sub.startsWith('..') && !isAbsolute(sub)
+  const dir = !worktree
+    ? cwd
+    : inside && existsSync(join(worktree.path, sub))
+      ? join(worktree.path, sub)
+      : worktree.path
   const hooked = !!agent?.hooks
-  const command =
-    agent && (hooked ? `${agent.cmd} --settings ${quote(writeHookSettings(id))}` : agent.cmd)
-  const [file, args] = launch(command)
+  const parts = agent && [
+    agent.cmd,
+    ...(hooked ? [`--settings ${quote(writeHookSettings(id))}`] : []),
+    // Una tarea que empieza por "-" no debe leerse como opción: `--` cierra las opciones.
+    ...(opts.prompt && agent.promptFlag !== undefined
+      ? [
+          agent.promptFlag || (opts.prompt.trimStart().startsWith('-') ? '--' : ''),
+          promptArg(id, opts.prompt)
+        ].filter(Boolean)
+      : [])
+  ]
+  const [file, args] = launch(parts?.join(' '))
 
-  const proc = pty.spawn(file, args, {
-    name: 'xterm-256color',
-    cols: 100,
-    rows: 30,
-    cwd,
-    env: {
-      ...process.env,
-      SLATE_SESSION_ID: id,
-      TERM_PROGRAM: 'Slate',
-      COLORTERM: 'truecolor'
-    } as Record<string, string>
-  })
+  let proc: pty.IPty
+  try {
+    proc = pty.spawn(file, args, {
+      name: 'xterm-256color',
+      cols: 100,
+      rows: 30,
+      cwd: dir,
+      env: {
+        ...process.env,
+        SLATE_SESSION_ID: id,
+        TERM_PROGRAM: 'Slate',
+        COLORTERM: 'truecolor'
+      } as Record<string, string>
+    })
+  } catch (err) {
+    // Sin proceso no hay sesión: no se dejan atrás la rama ni los archivos de la sesión.
+    removeHookSettings(id)
+    removePrompt(id)
+    if (worktree) await removeWorktree(worktree.root, worktree).catch(() => {})
+    throw err
+  }
   const s: Session = {
     id,
-    cwd,
+    cwd: dir,
     kind,
     title: freeTitle(
       agent?.name ?? 'Shell',
-      [...sessions.values()].filter((x) => samePath(x.cwd, cwd)).map((x) => x.title)
+      // Se numeran por carpeta de la barra lateral, contando también las aisladas en ramas.
+      [...sessions.values()]
+        .filter((x) => samePath(x.worktree?.project ?? x.cwd, cwd))
+        .map((x) => x.title)
     ),
     status: 'idle',
     hooked,
+    worktree,
     pty: proc,
     buffer: ''
   }
@@ -102,17 +169,19 @@ export function createSession(cwd: string, kind: SessionKind = 'shell'): Session
     clearTimeout(s.quiet)
     update(s, { type: 'exit' })
     removeHookSettings(id)
+    removePrompt(id)
   })
   return info(s)
 }
 
-const info = ({ id, cwd, kind, title, status, hooked }: Session): SessionInfo => ({
+const info = ({ id, cwd, kind, title, status, hooked, worktree }: Session): SessionInfo => ({
   id,
   cwd,
   kind,
   title,
   status,
-  hooked
+  hooked,
+  worktree
 })
 
 export const listSessions = (): SessionInfo[] => [...sessions.values()].map(info)
@@ -146,8 +215,16 @@ export function closeSession(id: string): void {
   clearTimeout(s.quiet)
   if (s.status !== 'exited') s.pty.kill()
   removeHookSettings(id)
+  removePrompt(id)
 }
 
-export function closeAll(): void {
+// En Windows, matar una pty es asíncrono (lista los procesos de su consola con un ayudante y
+// vacía la salida en otro hilo): salir sin esperar deja el proceso de Slate colgado al cerrar.
+// Por eso se espera a que terminen, con un tope por si alguna no responde.
+export async function closeAll(): Promise<void> {
+  const exited = [...sessions.values()]
+    .filter((s) => s.status !== 'exited')
+    .map((s) => new Promise<void>((done) => s.pty.onExit(() => done())))
   for (const id of [...sessions.keys()]) closeSession(id)
+  await Promise.race([Promise.all(exited), new Promise((done) => setTimeout(done, 3000))])
 }

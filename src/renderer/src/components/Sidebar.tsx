@@ -1,5 +1,12 @@
 import { useRef, useState } from 'react'
-import { CaretRightIcon, GearSixIcon, PlusIcon, TerminalWindowIcon } from '@phosphor-icons/react'
+import {
+  CaretRightIcon,
+  GearSixIcon,
+  GitBranchIcon,
+  PaperPlaneTiltIcon,
+  PlusIcon,
+  TerminalWindowIcon
+} from '@phosphor-icons/react'
 import { cn } from '@renderer/lib/utils'
 import {
   closeSession,
@@ -10,6 +17,7 @@ import {
   placeBeside,
   removeFolder,
   renameSession,
+  folderOf,
   samePath,
   selectSession,
   splitSession,
@@ -27,7 +35,7 @@ import {
   ContextMenuTrigger
 } from '@renderer/components/ui/context-menu'
 import { SessionIcon } from '@renderer/components/SessionIcon'
-import { openNewSessionMenu, openSettings } from '@renderer/overlays'
+import { openNewSessionMenu, openSettings, openTask } from '@renderer/overlays'
 import { shortcutKeys } from '@renderer/shortcuts'
 import {
   DropdownMenu,
@@ -95,7 +103,16 @@ function DangerItem({
   )
 }
 
-function SessionRow({ session, active }: { session: Session; active: boolean }): React.JSX.Element {
+// `index`: su posición en el grupo, para que las filas que llegan juntas entren escalonadas.
+function SessionRow({
+  session,
+  active,
+  index
+}: {
+  session: Session
+  active: boolean
+  index: number
+}): React.JSX.Element {
   // Desde el menú, el campo espera a que el menú termine de cerrarse para tomar el foco:
   // si lo tomara antes, el cierre se lo quitaría y ese blur guardaría el nombre al instante.
   const [editing, setEditing] = useState<false | 'direct' | 'menu'>(false)
@@ -119,9 +136,11 @@ function SessionRow({ session, active }: { session: Session; active: boolean }):
           data-unread={session.unread}
           onClick={() => selectSession(session.id)}
           onDoubleClick={() => setEditing('direct')}
+          style={{ animationDelay: `${index * 50}ms` }}
           className={cn(
             rowClass,
-            'pl-7',
+            'pl-7 animate-in duration-200 ease-out-quint fill-mode-backwards fade-in-0 slide-in-from-left-1',
+            session.worktree && 'h-auto min-h-7 py-1',
             active && 'bg-accent hover:bg-accent',
             session.status === 'exited' && 'text-muted-foreground'
           )}
@@ -145,7 +164,21 @@ function SessionRow({ session, active }: { session: Session; active: boolean }):
               className="min-w-0 flex-1 bg-transparent outline-none"
             />
           ) : (
-            <span className="truncate">{session.title}</span>
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate">{session.title}</span>
+              {/* La rama propia de una sesión aislada, sin el prefijo slate/ que comparten todas. */}
+              {session.worktree && (
+                <span
+                  title={session.worktree.branch}
+                  className="flex items-center gap-1 text-[12px] text-muted-foreground"
+                >
+                  <GitBranchIcon size={12} className="shrink-0" />
+                  <span className="truncate">
+                    {session.worktree.branch.replace(/^slate\//, '')}
+                  </span>
+                </span>
+              )}
+            </span>
           )}
         </div>
       </ContextMenuTrigger>
@@ -198,8 +231,8 @@ function SessionList({ sessions }: { sessions: Session[] }): React.JSX.Element {
   return (
     <>
       {groups.map((members) => {
-        const rows = members.map((s) => (
-          <SessionRow key={s.id} session={s} active={s.id === activeId} />
+        const rows = members.map((s, i) => (
+          <SessionRow key={s.id} session={s} active={s.id === activeId} index={i} />
         ))
         return members.length > 1 ? (
           <div key={members[0].id} className="space-y-0.5 rounded-md border border-border p-0.5">
@@ -214,7 +247,7 @@ function SessionList({ sessions }: { sessions: Session[] }): React.JSX.Element {
 }
 
 function FolderGroup({ project }: { project: Project }): React.JSX.Element {
-  const sessions = useStore((s) => s.sessions.filter((x) => samePath(x.cwd, project.path)))
+  const sessions = useStore((s) => s.sessions.filter((x) => samePath(folderOf(x), project.path)))
 
   return (
     <section>
@@ -281,7 +314,7 @@ function FolderGroup({ project }: { project: Project }): React.JSX.Element {
 // Sesiones cuya carpeta no está en la barra lateral: siguen vivas, así que deben verse.
 function OtherSessions(): React.JSX.Element | null {
   const others = useStore((s) =>
-    s.sessions.filter((x) => !s.projects.some((p) => samePath(p.path, x.cwd)))
+    s.sessions.filter((x) => !s.projects.some((p) => samePath(p.path, folderOf(x))))
   )
   if (!others.length) return null
   return (
@@ -318,13 +351,24 @@ function SidebarContent({ morphSource }: { morphSource: boolean }): React.JSX.El
             <PlusIcon size={15} /> Nueva sesión
           </span>
         </button>
-        {/* Blendy transforma el engranaje en Ajustes. */}
+        {/* Blendy transforma el avión de papel en el composer y el engranaje en Ajustes. */}
+        <button
+          data-blendy-from={morphSource ? 'task' : undefined}
+          onClick={openTask}
+          aria-label="Nueva tarea"
+          title={`Nueva tarea (${shortcutKeys('task')})`}
+          className="ml-auto grid size-7 place-items-center rounded-sm text-muted-foreground transition-colors duration-120 hover:bg-accent/40 hover:text-foreground"
+        >
+          <span className="grid place-items-center">
+            <PaperPlaneTiltIcon size={16} />
+          </span>
+        </button>
         <button
           data-blendy-from={morphSource ? 'settings' : undefined}
           onClick={openSettings}
           aria-label="Ajustes"
           title={`Ajustes (${shortcutKeys('settings')})`}
-          className="ml-auto grid size-7 place-items-center rounded-sm text-muted-foreground transition-colors duration-120 hover:bg-accent/40 hover:text-foreground"
+          className="grid size-7 place-items-center rounded-sm text-muted-foreground transition-colors duration-120 hover:bg-accent/40 hover:text-foreground"
         >
           <span className="grid place-items-center">
             <GearSixIcon size={16} />

@@ -1,5 +1,5 @@
 import { use, useEffect, useLayoutEffect } from 'react'
-import { FolderSimplePlusIcon, TerminalWindowIcon } from '@phosphor-icons/react'
+import { FolderSimplePlusIcon, PaperPlaneTiltIcon, TerminalWindowIcon } from '@phosphor-icons/react'
 import { cn } from './lib/utils'
 import { TitleBar } from './components/TitleBar'
 import { Sidebar } from './components/Sidebar'
@@ -8,7 +8,7 @@ import { Overlays } from './components/Overlays'
 import { Keys } from './components/Keys'
 import { DottedGlowBackground } from './components/ui/dotted-glow-background'
 import { initMotion, reducedMotion } from './motion'
-import { openNewSessionMenu } from './overlays'
+import { openTask } from './overlays'
 import { installShortcuts, shortcutKeys } from './shortcuts'
 import { addFolder, init, newSession, useStore } from './store'
 import { applyTheme, watchSystemTheme } from './theme'
@@ -44,7 +44,7 @@ function Empty(): React.JSX.Element {
         </h1>
         <p className="mt-2 leading-relaxed text-muted-foreground">
           {firstProject
-            ? 'Abre una shell o lanza un agente. Slate te avisa cuando alguno te necesite.'
+            ? 'Abre una shell o dale una tarea a uno o varios agentes. Slate te avisa cuando alguno te necesite.'
             : 'Slate agrupa tus shells y agentes por proyecto y te avisa cuando alguno te necesita.'}
         </p>
         <div className="mt-6 flex justify-center gap-2">
@@ -57,10 +57,11 @@ function Empty(): React.JSX.Element {
           </button>
           {firstProject && (
             <button
-              onClick={openNewSessionMenu}
-              className="inline-flex h-9 items-center rounded-sm border border-border px-4 text-muted-foreground transition-colors duration-120 hover:border-muted-foreground/40 hover:text-foreground"
+              onClick={openTask}
+              className="inline-flex h-9 items-center gap-2 rounded-sm border border-border px-4 text-muted-foreground transition-colors duration-120 hover:border-muted-foreground/40 hover:text-foreground"
             >
-              Elegir agente
+              <PaperPlaneTiltIcon size={16} />
+              Nueva tarea
             </button>
           )}
         </div>

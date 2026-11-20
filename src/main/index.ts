@@ -16,7 +16,8 @@ import { startHookServer } from './hooks'
 import { detectAgents } from './agents'
 import { readJson, writeJson } from './store'
 import * as sessions from './sessions'
-import type { Notice, SessionKind } from '../shared/types'
+import { currentBranch, repoRoot } from './git'
+import type { Notice, SessionKind, SessionOpts } from '../shared/types'
 
 // Solo estos archivos se pueden leer o escribir desde el renderer.
 const STORES = new Set(['prefs', 'projects'])
@@ -118,8 +119,11 @@ function createWindow(): void {
 }
 
 function registerIpc(): void {
-  ipcMain.handle('sessions:create', (_, cwd: string, kind?: SessionKind) =>
-    sessions.createSession(cwd, kind)
+  ipcMain.handle('sessions:create', (_, cwd: string, kind?: SessionKind, opts?: SessionOpts) =>
+    sessions.createSession(cwd, kind, {
+      isolate: opts?.isolate === true,
+      prompt: typeof opts?.prompt === 'string' ? opts.prompt : undefined
+    })
   )
   ipcMain.handle('sessions:list', () => sessions.listSessions())
   ipcMain.handle('sessions:buffer', (_, id: string) => sessions.readBuffer(id))
@@ -133,6 +137,12 @@ function registerIpc(): void {
   )
 
   ipcMain.handle('agents:detect', () => detectAgents())
+  // La rama actual de la carpeta, o null si no es un repo git.
+  // Un repo sin commits todavía no tiene rama: cuenta como "no se puede aislar".
+  ipcMain.handle('git:branch', async (_, cwd: string) => {
+    const root = await repoRoot(String(cwd))
+    return root ? currentBranch(root).catch(() => null) : null
+  })
 
   ipcMain.handle('store:read', (_, name: string, fallback: unknown) =>
     STORES.has(name) ? readJson(name, fallback) : fallback
@@ -174,11 +184,22 @@ app.whenReady().then(async () => {
   })
 })
 
-app.on('before-quit', () => (quitting = true))
+// Antes de salir se cierran las sesiones y se espera a que terminen; luego se sale de verdad.
+// ponytail: salir mata las sesiones (con la bandeja, cerrar solo esconde la ventana); el host que
+// las mantiene vivas entre reinicios llega en el roadmap.
+// Un segundo "Salir" mientras se espera reutiliza la misma espera en vez de salir antes de tiempo.
+let sessionsClosed = false
+let closing: Promise<void> | undefined
+app.on('before-quit', (e) => {
+  quitting = true
+  if (sessionsClosed) return
+  e.preventDefault()
+  closing ??= sessions.closeAll().finally(() => {
+    sessionsClosed = true
+    app.quit()
+  })
+})
 
 app.on('window-all-closed', () => {
-  // ponytail: salir mata las sesiones (con la bandeja, cerrar solo esconde la ventana); el host que
-  // las mantiene vivas entre reinicios llega en el roadmap.
-  sessions.closeAll()
   if (process.platform !== 'darwin') app.quit()
 })

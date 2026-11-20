@@ -9,6 +9,8 @@ assert.equal(freeTitle('Shell', ['Shell', 'Shell 2']), 'Shell 3')
 assert.equal(freeTitle('Shell', ['Shell', 'Shell 3']), 'Shell 2')
 // Cada base cuenta por separado.
 assert.equal(freeTitle('Claude Code', ['Shell', 'Shell 2']), 'Claude Code')
+// Nombres de rama: con guion.
+assert.equal(freeTitle('anadir-busqueda', ['anadir-busqueda'], '-'), 'anadir-busqueda-2')
 
 assert.ok(samePath('C:\\Proyectos\\Slate\\', 'c:\\proyectos\\slate'))
 assert.ok(!samePath('C:\\Proyectos\\Slate', 'C:\\Proyectos\\Otro'))

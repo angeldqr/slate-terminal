@@ -1,4 +1,6 @@
 // Preferencias del usuario: se guardan en prefs.json y se aplican al momento.
+import type { SessionKind } from '../../shared/types'
+
 export type Theme = 'auto' | 'light' | 'dark'
 export type CursorStyle = 'bar' | 'block' | 'underline'
 
@@ -15,6 +17,9 @@ export type Prefs = {
   notify: boolean
   sound: boolean
   tray: boolean
+  // Lo último elegido en Nueva tarea: se repite la próxima vez.
+  taskAgents: SessionKind[]
+  taskIsolate: boolean
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -29,7 +34,9 @@ export const DEFAULT_PREFS: Prefs = {
   copyOnSelect: false,
   notify: true,
   sound: true,
-  tray: false
+  tray: false,
+  taskAgents: ['claude'],
+  taskIsolate: true
 }
 
 // JetBrains Mono viene con Slate; las demás son las monoespaciadas que trae Windows.

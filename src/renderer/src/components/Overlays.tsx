@@ -1,5 +1,10 @@
 import { useEffect, useRef } from 'react'
-import { CircleHalfIcon, FolderSimplePlusIcon, TerminalWindowIcon } from '@phosphor-icons/react'
+import {
+  CircleHalfIcon,
+  FolderSimplePlusIcon,
+  PaperPlaneTiltIcon,
+  TerminalWindowIcon
+} from '@phosphor-icons/react'
 import {
   Command,
   CommandEmpty,
@@ -14,8 +19,9 @@ import { cn } from '@renderer/lib/utils'
 import { SessionIcon } from './SessionIcon'
 import { Keys } from './Keys'
 import { Settings } from './Settings'
+import { TaskComposer } from './TaskComposer'
 import { cycleTheme, THEMES } from '@renderer/theme'
-import { closeOverlay } from '@renderer/overlays'
+import { closeOverlay, openTask } from '@renderer/overlays'
 import { keysOf, SHORTCUTS, shortcutKeys } from '@renderer/shortcuts'
 import {
   addFolder,
@@ -184,6 +190,14 @@ function NewSessionMenu(): React.JSX.Element {
         )}
         <CommandSeparator />
         <CommandGroup>
+          {folder && (
+            <CommandItem value="nueva tarea" onSelect={openTask}>
+              <PaperPlaneTiltIcon /> Nueva tarea…
+              <CommandShortcut>
+                <Keys combo={shortcutKeys('task')} />
+              </CommandShortcut>
+            </CommandItem>
+          )}
           <AddFolderItem />
         </CommandGroup>
       </CommandList>
@@ -191,10 +205,16 @@ function NewSessionMenu(): React.JSX.Element {
   )
 }
 
-const CONTENT = { palette: Palette, 'new-session': NewSessionMenu, settings: Settings }
+const CONTENT = {
+  palette: Palette,
+  'new-session': NewSessionMenu,
+  settings: Settings,
+  task: TaskComposer
+}
 const PANELS = {
   palette: 'inset-x-0 top-[12vh] mx-auto w-[min(560px,calc(100vw-32px))] rounded-xl',
   'new-session': 'bottom-12 left-2 w-60 rounded-lg',
+  task: 'inset-x-0 top-[14vh] mx-auto w-[min(640px,calc(100vw-32px))] rounded-xl',
   settings:
     'inset-0 m-auto h-[min(580px,calc(100vh-64px))] w-[min(820px,calc(100vw-48px))] rounded-xl'
 }

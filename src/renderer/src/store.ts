@@ -1,5 +1,5 @@
 import { useRef, useSyncExternalStore } from 'react'
-import type { Agent, SessionInfo, SessionKind, Status } from '../../shared/types'
+import type { Agent, SessionInfo, SessionKind, SessionOpts, Status } from '../../shared/types'
 import { DEFAULT_PREFS, type Prefs } from './prefs'
 import {
   leaves,
@@ -18,7 +18,7 @@ export type Session = SessionInfo & { unread: boolean }
 // Una vista es lo que llena el área del terminal: una sesión sola o varias divididas.
 export type View = { id: string; layout: Layout }
 // Lo que flota sobre la ventana: la paleta de comandos, el menú de nueva sesión o los ajustes.
-export type Overlay = 'palette' | 'new-session' | 'settings'
+export type Overlay = 'palette' | 'new-session' | 'settings' | 'task'
 
 type State = {
   projects: Project[]
@@ -84,11 +84,22 @@ export function useStore<T>(pick: (s: State) => T): T {
 }
 
 const { slate } = window
-const baseName = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path
+export const baseName = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path
 
 // Windows no distingue mayúsculas en rutas y a veces sobra la barra final.
 const normalize = (path: string): string => path.replace(/[\\/]+$/, '').toLowerCase()
 export const samePath = (a: string, b: string): boolean => normalize(a) === normalize(b)
+
+// La carpeta de la barra lateral a la que pertenece: las sesiones aisladas viven en su worktree,
+// pero se agrupan bajo la carpeta desde la que salieron.
+export const folderOf = (s: SessionInfo): string => s.worktree?.project ?? s.cwd
+
+// El error tal como lo escribió main, sin el envoltorio que le pone Electron al cruzar IPC.
+const reason = (err: unknown): string =>
+  String((err as Error)?.message ?? err).replace(
+    /^Error invoking remote method '[^']+': (Error: )?/,
+    ''
+  )
 
 const saveProjects = (projects: Project[]): void => {
   setState({ projects })
@@ -187,7 +198,7 @@ export async function addFolder(): Promise<void> {
 
 // Quitar una carpeta cierra sus sesiones: si no, seguirían vivas sin forma de verlas.
 export function removeFolder(path: string): void {
-  state.sessions.filter((s) => samePath(s.cwd, path)).forEach((s) => closeSession(s.id))
+  state.sessions.filter((s) => samePath(folderOf(s), path)).forEach((s) => closeSession(s.id))
   saveProjects(state.projects.filter((p) => !samePath(p.path, path)))
 }
 
@@ -195,17 +206,19 @@ export const toggleFolder = (path: string): void =>
   saveProjects(state.projects.map((p) => (samePath(p.path, path) ? { ...p, open: !p.open } : p)))
 
 // Con `beside`, la sesión nueva se abre junto a esa sesión (a la derecha o abajo) en su vista.
+// Devuelve su id, o null si no se pudo abrir (el motivo se muestra en la barra superior).
 export async function newSession(
   cwd: string,
   kind: SessionKind = 'shell',
-  beside?: { id: string; dir: Dir }
-): Promise<void> {
+  beside?: { id: string; dir: Dir },
+  opts?: SessionOpts
+): Promise<string | null> {
   let info: SessionInfo
   try {
-    info = await slate.sessions.create(cwd, kind)
+    info = await slate.sessions.create(cwd, kind, opts)
   } catch (err) {
-    console.error('No se pudo abrir la sesión:', err)
-    return
+    flashHint(reason(err))
+    return null
   }
   const targetView = beside && viewOf(state, beside.id)
   setState({
@@ -217,6 +230,30 @@ export async function newSession(
   })
   const project = state.projects.find((p) => samePath(p.path, cwd))
   if (project && !project.open) toggleFolder(cwd)
+  return info.id
+}
+
+// Nueva tarea: la misma tarea a uno o varios agentes, todos en una vista dividida para compararlos.
+// Se reparten en rejilla: el 2.º a la derecha del 1.º, el 3.º debajo del 2.º, el 4.º debajo del 1.º…
+const GRID: { from: number; dir: Dir }[] = [
+  { from: 0, dir: 'row' },
+  { from: 1, dir: 'col' },
+  { from: 0, dir: 'col' }
+]
+export async function launchTask(
+  cwd: string,
+  prompt: string,
+  kinds: SessionKind[],
+  isolate: boolean
+): Promise<void> {
+  const ids: string[] = []
+  for (const [i, kind] of kinds.entries()) {
+    const place = i > 0 ? GRID[(i - 1) % GRID.length] : undefined
+    const beside = place && ids[place.from] ? { id: ids[place.from], dir: place.dir } : undefined
+    const id = await newSession(cwd, kind, beside, { isolate, prompt })
+    if (!id) return // el motivo ya está a la vista; no se abren las demás a medias
+    ids.push(id)
+  }
 }
 
 // Al mostrar una vista, todas sus sesiones quedan vistas, no solo la que recibe el foco.
@@ -249,10 +286,12 @@ export function closeSession(id: string): void {
   })
 }
 
-// Abre una shell nueva junto a esta sesión, en su misma carpeta.
+// Abre una shell nueva junto a esta sesión, en su carpeta de la barra lateral.
+// ponytail: junto a una sesión aislada abre en el repo principal, no en su rama; abrirla en la
+// rama pide que main acepte un worktree existente.
 export function splitSession(id: string, dir: Dir): void {
-  const session = state.sessions.find((s) => s.id === id)
-  if (session) newSession(session.cwd, 'shell', { id, dir })
+  const folder = folderOfId(state, id)
+  if (folder) newSession(folder, 'shell', { id, dir })
 }
 
 // Trae una sesión que ya existe junto al panel activo, sacándola de su vista.
@@ -303,7 +342,8 @@ export function groupByView(s: State, sessions: Session[]): Session[][] {
   return [...groups.values()]
 }
 
-const inProject = (s: State, x: Session): boolean => s.projects.some((p) => samePath(p.path, x.cwd))
+const inProject = (s: State, x: Session): boolean =>
+  s.projects.some((p) => samePath(p.path, folderOf(x)))
 
 // El orden exacto de la barra lateral: Ctrl+1…9 salta a la sesión que ves en esa posición.
 export const sidebarOrder = (s: State): Session[] => [
@@ -311,7 +351,7 @@ export const sidebarOrder = (s: State): Session[] => [
     p.open
       ? groupByView(
           s,
-          s.sessions.filter((x) => samePath(x.cwd, p.path))
+          s.sessions.filter((x) => samePath(folderOf(x), p.path))
         ).flat()
       : []
   ),
@@ -323,7 +363,12 @@ export const sidebarOrder = (s: State): Session[] => [
 
 // La carpeta donde abrir algo nuevo: la de la sesión activa o, si no hay, la primera.
 export const currentFolder = (s: State): string | undefined =>
-  s.sessions.find((x) => x.id === s.activeId)?.cwd ?? s.projects[0]?.path
+  folderOfId(s, s.activeId) ?? s.projects[0]?.path
+
+const folderOfId = (s: State, id: string | null): string | undefined => {
+  const session = s.sessions.find((x) => x.id === id)
+  return session && folderOf(session)
+}
 
 export function selectByIndex(index: number): void {
   const target = sidebarOrder(state)[index]

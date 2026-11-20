@@ -11,7 +11,7 @@ import { cn } from '@renderer/lib/utils'
 import { openPalette } from '@renderer/overlays'
 import { shortcutKeys } from '@renderer/shortcuts'
 import { Keys } from './Keys'
-import { samePath, toggleSidebar, useStore } from '@renderer/store'
+import { folderOf, samePath, toggleSidebar, useStore } from '@renderer/store'
 
 const { win } = window.slate
 const HIDE_DELAY = 450 // margen para no esconderla al rozar el borde al pasar
@@ -84,7 +84,7 @@ export function TitleBar(): React.JSX.Element {
 
   const active = useStore((s) => s.sessions.find((x) => x.id === s.activeId))
   const folder = useStore(
-    (s) => s.projects.find((p) => active && samePath(p.path, active.cwd))?.name
+    (s) => s.projects.find((p) => active && samePath(p.path, folderOf(active)))?.name
   )
   const hint = useStore((s) => s.hint)
   // Con un aviso o una capa abierta se queda a la vista: el aviso vive en ella.

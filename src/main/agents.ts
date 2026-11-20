@@ -2,12 +2,13 @@ import { execFile } from 'node:child_process'
 import type { Agent } from '../shared/types'
 
 // Agentes que Slate sabe lanzar. `hooks`: reporta su estado por hooks HTTP (solo Claude Code por ahora).
+// `promptFlag`: cómo arrancan ya con una tarea, sin salir del modo interactivo (según su documentación).
 export const AGENTS: Agent[] = [
-  { id: 'claude', name: 'Claude Code', cmd: 'claude', hooks: true },
-  { id: 'codex', name: 'Codex', cmd: 'codex' },
-  { id: 'gemini', name: 'Gemini CLI', cmd: 'gemini' },
-  { id: 'opencode', name: 'OpenCode', cmd: 'opencode' },
-  { id: 'cursor', name: 'Cursor Agent', cmd: 'cursor-agent' }
+  { id: 'claude', name: 'Claude Code', cmd: 'claude', hooks: true, promptFlag: '' },
+  { id: 'codex', name: 'Codex', cmd: 'codex', promptFlag: '' },
+  { id: 'gemini', name: 'Gemini CLI', cmd: 'gemini', promptFlag: '-i' },
+  { id: 'opencode', name: 'OpenCode', cmd: 'opencode', promptFlag: '--prompt' },
+  { id: 'cursor', name: 'Cursor Agent', cmd: 'cursor-agent', promptFlag: '' }
 ]
 
 const which = (cmd: string): Promise<boolean> =>

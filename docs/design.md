@@ -197,7 +197,49 @@ Modo claro: lienzo `#FAFAFA`, superficie `#F0F1F2`, línea `#DCDEE0`, texto `#12
 ```
 
 ## 7. Movimiento de Slate
-- **Blendy, solo para morphs que responden a un clic**: ⚙ → Ajustes, lupa → paleta, `+` → menú de nueva sesión.
+- **Blendy, solo para morphs que responden a un clic**: ⚙ → Ajustes, lupa → paleta, `+` → menú de nueva sesión, avión de papel → Nueva tarea.
+- **Nueva tarea**: los ejemplos del campo rotan cada 3 s; al lanzar, el texto se deshace en partículas (Aceternity) y la capa se cierra al terminar. Las sesiones que llegan juntas entran en la barra lateral con un fundido escalonado de 50 ms.
 - **Trazo de tiza**: un brillo que recorre la línea cada 1.6 s mientras trabaja y un único latido ámbar al pasar a "te necesita".
 - **Barra lateral flotante**: entra en 200 ms y sale en 160 ms.
 - **Con `prefers-reduced-motion`**: todo pasa a fundidos instantáneos.
+
+## 8. Referencia: T3 Code (observado el 2026-11-19)
+Lo recorrí con Windows-MCP sin enviar mensajes. Solo anoto lo que se ve; no se copia código.
+
+- **Inicio de un hilo**: composer centrado con un titular grande ("What should we build in droply?"). Es una tarjeta con placeholder "Ask anything. @ files, $ skills, / commands", chip del modelo, micrófono y botón de enviar redondo. Debajo, tres chips pequeños:
+  - espacio de trabajo: *Current checkout* o *New worktree*, en un menú;
+  - rama;
+  - permisos.
+- **Tarjeta flotante de detalles**, arriba a la derecha:
+  - máquina;
+  - "Open in Zed";
+  - scripts del proyecto;
+  - rama;
+  - **botón dividido** "Create PR" con el menú Commit / Push / Create PR (las que no aplican, en gris);
+  - "Changes vs origin/main" con `+67,571 −1` en verde y rojo.
+- **Panel de diff**, unos 540 px a la derecha, con pestañas (Diff y un archivo abierto):
+  - **Barra de herramientas**: fuente (Changes) vs base (origin/main) como selectores, total `+68k −1`, recargar, plegar o desplegar todo, apilado o lado a lado, ajuste de línea, espacios y árbol.
+  - **Cada archivo**: flecha, icono de estado (más dentro de un cuadro, en verde), la ruta recortada por el principio ("…/prisma/migrations/…") y `+N −N` en monoespaciada a la derecha.
+  - **Al desplegar**: líneas numeradas, una barra verde de 3 px a la izquierda y un fondo verde muy tenue. Junto al nombre hay un botón para copiar la ruta.
+  - **Al pulsar el nombre**, se abre el archivo en una pestaña con un árbol de archivos (iconos por tipo; ignorados en gris).
+- **Hilos**: insignia del proyecto, título y tiempo relativo ("23h", "3d"). Un grupo "Settled" plegable. Turnos de trabajo plegados como "Worked for 38s ›". Un mini-mapa de turnos en el borde.
+- **Ajustes**:
+  - **Diffs**: disposición apilada o lado a lado; ocultar espacios; archivos plegados por defecto; colores del diff.
+  - **"Open … changes panels proactively"**: abre Cambios solo si la edición toca al menos 3 archivos o 50 líneas.
+  - **Worktrees**: carpeta, "empezar desde el remoto", **nombre de rama sacado del primer mensaje** con prefijo (`t3/add-search`), y limpieza que conserva los worktrees con cambios locales.
+  - **Git**: "quitar los créditos de agentes al fusionar".
+
+### Lo que Slate toma (Fase 5), a su manera
+- **Composer "Nueva tarea"**: un titular "¿Qué hacemos en <carpeta>?" y debajo una fila de chips:
+  - agentes, con selección múltiple;
+  - **Checkout actual o Rama aislada**, en un chip con menú;
+  - la rama base.
+- **Nombre de la rama a partir de la tarea**: `slate/anadir-busqueda`. Si se repite, `-2`.
+- **Panel de cambios**:
+  - una fila por archivo, con la ruta recortada por el principio y `+N −N` en monoespaciada;
+  - al desplegar, una barra de 2 px a la izquierda, fondos al 6–8 % y números de línea;
+  - archivos plegados por defecto;
+  - plegar o desplegar todo, y recargar.
+- **Acción principal dividida**: el botón muestra la siguiente acción útil ("Fusionar en main" o "Crear PR") y el menú tiene el resto (Commit, Push, Descartar).
+- **Al fusionar se quitan las líneas de crédito de agentes** (`Co-Authored-By` de agentes), por defecto, tal como lo prefiere el usuario.
+- **Se descarta**: el chat de T3 (Slate sigue siendo un terminal), el mini-mapa de turnos y el árbol de archivos (quizá más adelante).

@@ -38,3 +38,4 @@ export function closeOverlay(): void {
 export const openPalette = (): void => openOverlay('palette')
 export const openNewSessionMenu = (): void => openOverlay('new-session')
 export const openSettings = (): void => openOverlay('settings')
+export const openTask = (): void => openOverlay('task')

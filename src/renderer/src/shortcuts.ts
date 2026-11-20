@@ -6,6 +6,7 @@ import {
   CopySimpleIcon,
   GearSixIcon,
   SidebarSimpleIcon,
+  PaperPlaneTiltIcon,
   PlusIcon,
   SquareSplitVerticalIcon,
   MagnifyingGlassIcon,
@@ -26,7 +27,7 @@ import {
   toggleSidebar
 } from './store'
 import { terminals } from './terminals'
-import { openNewSessionMenu, openPalette, openSettings } from './overlays'
+import { openNewSessionMenu, openPalette, openSettings, openTask } from './overlays'
 
 export const isMac = navigator.userAgent.includes('Mac')
 
@@ -79,6 +80,14 @@ export const SHORTCUTS: Shortcut[] = [
     mac: 'Cmd+N',
     icon: PlusIcon,
     run: openNewSessionMenu
+  },
+  {
+    id: 'task',
+    label: 'Nueva tarea…',
+    win: 'Ctrl+Shift+A',
+    mac: 'Cmd+Shift+A',
+    icon: PaperPlaneTiltIcon,
+    run: openTask
   },
   {
     id: 'split-right',

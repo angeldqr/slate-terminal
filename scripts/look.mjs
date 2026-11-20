@@ -1,7 +1,8 @@
 // Abre Slate ya compilado como lo usaría una persona, guarda capturas en .look/ y prueba los hooks.
 // Usa su propia carpeta de datos (.look/data) para no tocar la del usuario.
 import { _electron as electron } from 'playwright'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { basename, join, resolve } from 'node:path'
 import assert from 'node:assert/strict'
 
@@ -355,6 +356,19 @@ console.log('· quitar carpeta: confirma y cierra sus sesiones')
 
 await app.close()
 
+// Un repo de prueba para las ramas aisladas: el de Slate no se toca.
+const testRepo = join(data, 'repo')
+mkdirSync(testRepo)
+const gitIn = (...args) => execFileSync('git', args, { cwd: testRepo, encoding: 'utf8' })
+gitIn('init', '-b', 'main')
+writeFileSync(join(testRepo, 'README.md'), '# repo de prueba\n')
+gitIn('add', '.')
+gitIn('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-m', 'inicio')
+writeFileSync(
+  join(data, 'projects.json'),
+  JSON.stringify([{ path: testRepo, name: 'repo', open: true }])
+)
+
 // Al reabrir con el tema claro guardado, la página arranca ya en claro: sin destello oscuro.
 writeFileSync(
   join(data, 'prefs.json'),
@@ -366,8 +380,71 @@ await first.waitForLoadState('domcontentloaded')
 assert.equal(await first.evaluate(() => document.documentElement.dataset.theme), 'light')
 console.log('· reabre con el tema guardado desde el primer pintado')
 
+// Nueva tarea: el avión de papel se transforma en el composer y la tarea abre una rama propia.
+const shot2 = (name) => first.screenshot({ path: `.look/${name}.png` })
+await first.getByText('Todo listo en repo').waitFor()
+await first.keyboard.press('Control+Shift+A')
+await first.waitForTimeout(150)
+await shot2('tarea-morph')
+await first.getByRole('heading', { name: '¿Qué hacemos en repo?' }).waitFor()
+await first.waitForTimeout(700) // deja entrar el primer ejemplo del campo
+await shot2('tarea')
+// Solo la shell: los agentes reales gastarían tokens. Se desmarcan uno a uno y se comprueba.
+const pressed = first.locator('[role="group"][aria-label="Agentes"] [aria-pressed="true"]')
+while (await pressed.count()) await pressed.first().click()
+assert.ok(
+  await first.getByRole('button', { name: 'Lanzar tarea' }).isDisabled(),
+  'sin agentes no se lanza'
+)
+await first.getByRole('button', { name: 'Shell', exact: true }).click()
+assert.equal(await pressed.count(), 1, 'solo la shell queda marcada')
+await first.getByRole('textbox', { name: 'Tarea', exact: true }).fill('Añadir búsqueda')
+await first.keyboard.press('Enter')
+await first.waitForTimeout(150)
+await shot2('tarea-desvanece') // las letras se deshacen en partículas
+await first.getByText('anadir-busqueda', { exact: true }).waitFor({ timeout: 10000 })
+await first.waitForFunction(() => !document.querySelector('[data-blendy-to]'))
+const wtPath = join(testRepo, '.slate', 'worktrees', 'anadir-busqueda')
+assert.ok(existsSync(wtPath), 'el worktree existe')
+assert.match(gitIn('branch', '--list', 'slate/*'), /slate\/anadir-busqueda/)
+assert.equal(gitIn('status', '--porcelain').trim(), '', 'el repo principal sigue limpio')
+const launched = await first.evaluate(() => window.slate.sessions.list())
+assert.deepEqual(
+  launched.map((x) => x.kind),
+  ['shell'],
+  'se lanzó solo lo elegido'
+)
+const isolated = launched[0]
+assert.equal(resolve(isolated.cwd), resolve(wtPath), 'la shell arranca en su rama')
+assert.equal(isolated.worktree.base, 'main')
+await first.waitForTimeout(1200)
+await shot2('tarea-lanzada')
+console.log('· nueva tarea: rama propia nombrada por la tarea, bajo su carpeta')
+
+// Dos copias de la shell: cada una en su rama, juntas en una vista dividida para comparar.
+// La tarea repetida no pisa la rama anterior: llegan anadir-busqueda-2 y -3.
+await first.keyboard.press('Control+Shift+A')
+await first.getByRole('button', { name: 'Copias de Shell: 1' }).click()
+await first.getByRole('textbox', { name: 'Tarea', exact: true }).fill('Añadir búsqueda')
+await first.keyboard.press('Enter')
+const folderSection = first.locator('nav section').filter({
+  has: first.getByText('repo', { exact: true })
+})
+for (const branch of ['anadir-busqueda-2', 'anadir-busqueda-3']) {
+  await folderSection.getByText(branch, { exact: true }).waitFor({ timeout: 10000 })
+}
+await first.waitForFunction(() => !document.querySelector('[data-blendy-to]'))
+assert.equal(await first.locator('.xterm-screen:visible').count(), 2, 'las dos, lado a lado')
+assert.equal(
+  await folderSection.locator('.rounded-md.border [data-status]').count(),
+  2,
+  'juntas en el recuadro de su vista, bajo su carpeta'
+)
+await first.waitForTimeout(1000)
+await shot2('tarea-copias')
+console.log('· ×2: dos ramas, una vista dividida, bajo la carpeta del repo')
+
 // Con la bandeja, el botón de cerrar esconde la ventana y la app sigue viva.
-await first.getByText('Empieza por una carpeta').waitFor()
 await first.evaluate(() => window.slate.win.close())
 await first.waitForTimeout(500)
 assert.equal(
@@ -375,7 +452,10 @@ assert.equal(
   false,
   'la ventana se esconde en la bandeja'
 )
+// Salir con tres sesiones vivas espera a que terminen y no deja el proceso colgado.
+const quitStart = Date.now()
 await again.close()
-console.log('· con la bandeja, cerrar solo esconde la ventana')
+assert.ok(Date.now() - quitStart < 8000, 'sale en pocos segundos con sesiones vivas')
+console.log('· con la bandeja, cerrar solo esconde la ventana; salir con sesiones vivas no cuelga')
 
 console.log('look: ok · capturas en .look/')
