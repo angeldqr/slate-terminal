@@ -424,6 +424,32 @@ for (const id of [grandId, childId]) {
 }
 assert.match((await closedWait).text, /was closed/, 'cerrar durante una espera la termina')
 
+// WebGL solo en lo que se ve: un terminal oculto no guarda un contexto de la GPU (hay unos 16).
+const canvases = await win.evaluate(() =>
+  [...document.querySelectorAll('.xterm')].map((x) => ({
+    hidden: !!x.closest('.hidden'),
+    webgl: x.querySelectorAll('canvas:not([class])').length > 0 // los del renderer WebGL
+  }))
+)
+assert.ok(
+  canvases.some((c) => c.hidden),
+  'hay terminales ocultas en esta prueba'
+)
+assert.ok(
+  canvases.filter((c) => c.hidden).every((c) => !c.webgl),
+  'las ocultas no tienen contexto WebGL'
+)
+// Las visibles sí lo tienen, siempre que Chromium ofrezca WebGL en esta máquina.
+const gpuInfo = await win.evaluate(() => window.slate.app.info().then((i) => i.gpu))
+if (gpuInfo.on && /^enabled/.test(gpuInfo.webgl))
+  assert.ok(
+    canvases.filter((c) => !c.hidden).every((c) => c.webgl),
+    'las visibles usan WebGL'
+  )
+console.log(
+  `· GPU: WebGL solo en lo visible (${canvases.filter((c) => c.webgl).length} de ${canvases.length})`
+)
+
 // Ajustes: el engranaje se transforma en el panel y cada cambio llega al terminal en vivo.
 const overlayOpen = () => win.locator('[data-blendy-to]').count()
 await win.evaluate(() =>
@@ -466,7 +492,9 @@ await win.getByText(/^En marcha con \d+ terminal/).waitFor()
 await win.getByText(data, { exact: true }).waitFor() // la carpeta de datos
 await win.waitForTimeout(300)
 await shot('ajustes-avanzado')
-console.log('· ajustes: avanzado muestra el host en marcha y la carpeta de datos')
+await win.getByRole('switch', { name: 'Aceleración por GPU' }).waitFor()
+await win.getByText(/^(Activa|Encendida|Apagada)/).waitFor()
+console.log('· ajustes: avanzado muestra la GPU, el host en marcha y la carpeta de datos')
 
 // Un tema gris de cada modo: Pizarra tiñe el terminal y la interfaz; el botón de la fila lo
 // devuelve a su valor.

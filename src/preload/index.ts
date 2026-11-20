@@ -17,6 +17,12 @@ function on<A extends unknown[]>(channel: string, fn: (...args: A) => void): () 
   return () => ipcRenderer.removeListener(channel, listener)
 }
 
+// La salida llega en lotes ({ id: texto }); cada terminal escucha solo la suya.
+const dataListeners = new Map<string, Set<(data: string) => void>>()
+ipcRenderer.on('session:data', (_, batch: Record<string, string>) => {
+  for (const [id, data] of Object.entries(batch)) dataListeners.get(id)?.forEach((fn) => fn(data))
+})
+
 // Los archivos de datos que el renderer puede leer y escribir (main tiene la misma lista).
 type StoreName = 'prefs' | 'projects' | 'layout'
 
@@ -37,7 +43,14 @@ const api = {
     write: (id: string, data: string): void => ipcRenderer.send('sessions:write', id, data),
     resize: (id: string, cols: number, rows: number): void =>
       ipcRenderer.send('sessions:resize', id, cols, rows),
-    onData: (fn: (id: string, data: string) => void) => on('session:data', fn),
+    onData: (id: string, fn: (data: string) => void): (() => void) => {
+      const set = dataListeners.get(id) ?? new Set()
+      dataListeners.set(id, set.add(fn))
+      return () => {
+        set.delete(fn)
+        if (!set.size) dataListeners.delete(id)
+      }
+    },
     onStatus: (fn: (id: string, status: Status) => void) => on('session:status', fn),
     // Sesiones que abrió un agente por MCP (new_task), con la sesión que las pidió.
     onAdopted: (fn: (sessions: SessionInfo[], parent: string) => void) => on('sessions:adopted', fn)
@@ -63,7 +76,12 @@ const api = {
       ipcRenderer.invoke('store:write', name, data)
   },
   app: {
-    info: (): Promise<{ dataDir: string; host: boolean }> => ipcRenderer.invoke('app:info'),
+    info: (): Promise<{
+      dataDir: string
+      host: boolean
+      gpu: { on: boolean; webgl: string; compositing: string }
+    }> => ipcRenderer.invoke('app:info'),
+    relaunch: (): void => ipcRenderer.send('app:relaunch'),
     openData: (): Promise<string> => ipcRenderer.invoke('app:openData'),
     shells: (): Promise<{ id: string; name: string }[]> => ipcRenderer.invoke('shells:list'),
     // Tamaño de toda la interfaz (1 = 100 %).

@@ -9,6 +9,7 @@ import {
   Notification,
   Tray
 } from 'electron'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -74,6 +75,7 @@ type SavedPrefs = {
   orchestration?: unknown
   keepAlive?: unknown
   autoUpdate?: unknown
+  gpu?: unknown
 } | null
 
 // Al salir, ¿las sesiones siguen vivas en el host? Sí por defecto; `stopOnQuit` lo fuerza a no
@@ -130,6 +132,8 @@ function createWindow(): void {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
+      // Sin frenar hasta que se ve: el primer pintado no espera a que la ventana tenga foco.
+      backgroundThrottling: false,
       // El tamaño de la interfaz (Ajustes › Apariencia) desde el primer frame.
       // Lo escribe el renderer: se acota a lo que ofrece Ajustes (85–130 %).
       zoomFactor:
@@ -139,7 +143,10 @@ function createWindow(): void {
     }
   })
 
-  win.on('ready-to-show', () => win?.show())
+  win.on('ready-to-show', () => {
+    win?.show()
+    win?.webContents.setBackgroundThrottling(true) // ya visible: oculta, ahorra batería
+  })
   // Apagar o cerrar sesión en Windows no emite before-quit: sin esto la ventana lo bloquearía.
   win.on('session-end', () => (quitting = true))
   win.on('close', (e) => {
@@ -233,9 +240,21 @@ function registerIpc(): void {
   // Ajustes › Avanzado.
   ipcMain.handle('app:info', () => ({
     dataDir: app.getPath('userData'),
-    host: hostConnected()
+    host: hostConnected(),
+    // Con qué arrancó esta vez (cambiar el ajuste vale desde el siguiente arranque) y qué dice
+    // Chromium: "enabled" o "enabled_on" es la GPU de verdad.
+    gpu: {
+      on: gpuAtBoot,
+      webgl: String(app.getGPUFeatureStatus().webgl ?? ''),
+      compositing: String(app.getGPUFeatureStatus().gpu_compositing ?? '')
+    }
   }))
   ipcMain.handle('app:openData', () => shell.openPath(app.getPath('userData')))
+  // Reiniciar para aplicar la GPU: con "Mantener las sesiones", siguen vivas en el host.
+  ipcMain.on('app:relaunch', () => {
+    app.relaunch()
+    app.quit()
+  })
 
   ipcMain.handle('update:state', () => updater.updateState())
   ipcMain.on('update:check', () => updater.checkForUpdates())
@@ -269,6 +288,46 @@ function registerIpc(): void {
 // echaría al primero, que daría por terminadas sesiones que siguen vivas). El segundo solo
 // trae al frente al que ya está abierto.
 const single = app.requestSingleInstanceLock()
+
+// Aceleración por GPU (Ajustes › Avanzado): apagarla solo se puede antes de que Electron esté
+// listo, así que se lee de las preferencias al arrancar.
+const gpuAtBoot = readJson<SavedPrefs>('prefs', null)?.gpu !== false
+if (single && !gpuAtBoot) app.disableHardwareAcceleration()
+if (single) clearStaleGpuCaches()
+
+// Las cachés de shaders de otra versión de Electron pueden hacer que la GPU falle y todo caiga
+// a la CPU: al cambiar de versión (una actualización) se borran. Como hace T3 Code.
+function clearStaleGpuCaches(): void {
+  const dir = app.getPath('userData')
+  const mark = join(dir, 'gpu-cache-version')
+  const current = process.versions.electron
+  let last = ''
+  try {
+    last = readFileSync(mark, 'utf8').trim()
+  } catch {
+    // primera vez: no hay marca
+  }
+  if (last === current) return
+  for (const name of [
+    'GPUCache',
+    'GrShaderCache',
+    'ShaderCache',
+    'DawnGraphiteCache',
+    'DawnWebGPUCache'
+  ]) {
+    try {
+      rmSync(join(dir, name), { recursive: true, force: true })
+    } catch {
+      // bloqueada (antivirus): se queda; no debe impedir que Slate arranque
+    }
+  }
+  try {
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(mark, current)
+  } catch {
+    // sin poder escribir la marca, se volverán a borrar la próxima vez: no pasa nada
+  }
+}
 if (!single) app.quit()
 app.on('second-instance', showWindow)
 

@@ -98,10 +98,12 @@ const termOptions = (p: TermPrefs, palette: Palette): ITerminalOptions => ({
 
 export function TerminalPane({
   sessionId,
-  focused
+  focused,
+  visible
 }: {
   sessionId: string
   focused: boolean
+  visible: boolean
 }): React.JSX.Element {
   const host = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
@@ -141,26 +143,27 @@ export function TerminalPane({
     term.open(host.current!)
     termRef.current = term
 
-    // WebGL dibuja más rápido; si la GPU pierde el contexto, xterm vuelve al renderer DOM.
-    try {
-      const webgl = new WebglAddon()
-      webgl.onContextLoss(() => webgl.dispose())
-      term.loadAddon(webgl)
-    } catch {
-      // sin WebGL: se queda el renderer por defecto
-    }
-
     const { sessions } = window.slate
     // xterm se ajusta al instante; el proceso se entera cuando el tamaño se calma, así una
     // interfaz como Claude Code no se redibuja en cada frame mientras se arrastra un divisor.
     let settle: ReturnType<typeof setTimeout> | undefined
+    const tell = (): void => {
+      clearTimeout(settle)
+      settle = undefined
+      sessions.resize(sessionId, term.cols, term.rows)
+    }
     const resize = (): void => {
       if (!host.current?.offsetWidth) return // oculta: xterm no puede medir
       fit.fit()
       clearTimeout(settle)
-      settle = setTimeout(() => sessions.resize(sessionId, term.cols, term.rows), 80)
+      settle = setTimeout(tell, 80)
     }
     refit.current = resize
+    // Al soltar el divisor el proceso se entera en el acto: lo que se escriba ya cae al ancho nuevo.
+    const release = (): void => void (settle && tell())
+    addEventListener('pointerup', release)
+    addEventListener('pointercancel', release)
+    addEventListener('blur', release)
 
     // Primero lo que ya imprimió y después lo nuevo: IPC entrega en orden, así no se duplica nada.
     let alive = true
@@ -169,7 +172,7 @@ export function TerminalPane({
       const past = await sessions.buffer(sessionId)
       if (!alive) return
       term.write(past)
-      offData = sessions.onData((id, data) => id === sessionId && term.write(data))
+      offData = sessions.onData(sessionId, (data) => term.write(data))
       resize()
     })
 
@@ -200,6 +203,9 @@ export function TerminalPane({
       alive = false
       terminals.delete(sessionId)
       clearTimeout(settle)
+      removeEventListener('pointerup', release)
+      removeEventListener('pointercancel', release)
+      removeEventListener('blur', release)
       observer.disconnect()
       offData()
       input.dispose()
@@ -208,6 +214,37 @@ export function TerminalPane({
       termRef.current = null
     }
   }, [sessionId])
+
+  // WebGL solo mientras se ve: cada contexto es memoria de la GPU y Chromium admite unos 16 por
+  // ventana (pasado eso, los más viejos se pierden y caen al renderer DOM sin avisar). Oculto,
+  // xterm usa el renderer DOM, que no dibuja nada mientras no se ve. Si la GPU pierde el contexto
+  // se reintenta una vez; si vuelve a perderlo, ese terminal se queda en DOM.
+  useEffect(() => {
+    const term = termRef.current
+    if (!visible || !term) return
+    let webgl: WebglAddon | null = null
+    let retried = false
+    let retry: ReturnType<typeof setTimeout> | undefined
+    const load = (): void => {
+      try {
+        webgl = new WebglAddon()
+        webgl.onContextLoss(() => {
+          webgl?.dispose()
+          webgl = null
+          if (!retried) retry = setTimeout(load, 1000)
+          retried = true
+        })
+        term.loadAddon(webgl)
+      } catch {
+        webgl = null // sin WebGL (GPU apagada o sin contextos): se queda el renderer DOM
+      }
+    }
+    load()
+    return () => {
+      clearTimeout(retry)
+      webgl?.dispose()
+    }
+  }, [visible])
 
   // Ajustes cambia el terminal en vivo; antes de pintar, para que el cambio de tema salga entero.
   useLayoutEffect(() => {

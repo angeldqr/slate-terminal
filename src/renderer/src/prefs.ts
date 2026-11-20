@@ -37,6 +37,7 @@ export type Prefs = {
   orchestration: boolean // Claude Code recibe el MCP de Slate para dirigir a otros agentes
   keepAlive: boolean // las sesiones siguen vivas en el host al salir de Slate
   autoUpdate: boolean // buscar versiones nuevas al abrir Slate
+  gpu: boolean // aceleración por GPU (vale desde el siguiente arranque)
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -69,7 +70,8 @@ export const DEFAULT_PREFS: Prefs = {
   taskIsolate: true,
   orchestration: true,
   keepAlive: true,
-  autoUpdate: true
+  autoUpdate: true,
+  gpu: true
 }
 
 // Límites de lo que se ajusta con deslizador.

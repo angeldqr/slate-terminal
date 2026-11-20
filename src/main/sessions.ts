@@ -38,6 +38,22 @@ export const onSessionEvent = (fn: typeof send): void => void (send = fn)
 // Para avisos al renderer que no salen de una sesión concreta (sesiones lanzadas por MCP).
 export const emit = (channel: string, ...args: unknown[]): void => send(channel, ...args)
 
+// La salida de todas las sesiones viaja junta cada ~6 ms (menos de un frame): un agente que
+// imprime a ráfagas no satura el IPC con miles de mensajes pequeños.
+const pending = new Map<string, string>()
+let flushTimer: ReturnType<typeof setTimeout> | undefined
+function queueData(id: string, data: string): void {
+  pending.set(id, (pending.get(id) ?? '') + data)
+  flushTimer ??= setTimeout(flushData, 6)
+}
+function flushData(): void {
+  clearTimeout(flushTimer)
+  flushTimer = undefined
+  if (!pending.size) return
+  send('session:data', Object.fromEntries(pending))
+  pending.clear()
+}
+
 const isWin = process.platform === 'win32'
 const defaultShell = ((): string => {
   if (!isWin) return process.env.SHELL || '/bin/bash'
@@ -116,6 +132,7 @@ function update(s: Session, ev: StatusEvent): void {
   if (status === s.status) return
   s.status = status
   setMeta(s.id, { status })
+  flushData() // la última salida llega antes que el aviso de estado
   send('session:status', s.id, status)
   s.waiters.forEach((wake) => wake())
 }
@@ -259,7 +276,7 @@ function adopt(
   proc.onData((data) => {
     s.buffer = (s.buffer + data).slice(-MAX_BUFFER)
     if (sessions.has(id)) s.screen.write(data)
-    send('session:data', id, data)
+    queueData(id, data)
     const bell = NOTIFY.test(data) || data.replace(OSC, '').includes('\x07')
     // En una shell normal solo el BEL importa; la salida de `ls` no es "trabajar".
     if (kind === 'shell') return bell ? update(s, { type: 'output', bell }) : undefined
@@ -322,7 +339,12 @@ export const sessionInfo = (id: string): SessionInfo | undefined => {
 }
 
 // Lo que ya imprimió la sesión, para pintarla al volver a montarla.
-export const readBuffer = (id: string): string => sessions.get(id)?.buffer ?? ''
+// Antes de responder sale el lote pendiente: llega al renderer antes que este buffer (IPC respeta
+// el orden), cuando el terminal aún no escucha; así ningún trozo se pinta dos veces.
+export function readBuffer(id: string): string {
+  flushData()
+  return sessions.get(id)?.buffer ?? ''
+}
 
 export function handleHook(id: string, ev: { hook_event_name?: string }): void {
   const s = sessions.get(id)

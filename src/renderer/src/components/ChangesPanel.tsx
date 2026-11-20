@@ -49,7 +49,7 @@ import {
 } from './ui/dropdown-menu'
 
 const { git } = window.slate
-const POLL_MS = 2000 // ponytail: sondeo mientras el panel está abierto; fs.watch si llega a pesar
+const POLL_MS = 4000 // ponytail: sondeo mientras el panel está abierto; fs.watch si llega a pesar
 const LINES_PER_FILE = 400 // más se despliega a petición: un diff enorme no congela el panel
 
 const iconButton =
@@ -553,7 +553,9 @@ function PanelBody({
       .catch(() => null)
       .then((next) => {
         if (mine !== asked.current) return
-        setChanges(next)
+        // Sin cambios no hay estado nuevo; pero el tick sube siempre: una línea editada de nuevo
+        // deja el mismo +1/−1 y los diffs abiertos deben volver a pedirse.
+        setChanges((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next))
         setTick((t) => t + 1)
         if (next) setDiffStats(id, sum(next.files, 'add'), sum(next.files, 'del'))
       })

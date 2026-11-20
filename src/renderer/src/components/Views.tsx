@@ -79,7 +79,15 @@ function PaneHeader({ id }: { id: string }): React.JSX.Element | null {
   )
 }
 
-function Pane({ id, multi }: { id: string; multi: boolean }): React.JSX.Element {
+function Pane({
+  id,
+  multi,
+  visible
+}: {
+  id: string
+  multi: boolean
+  visible: boolean
+}): React.JSX.Element {
   const focused = useStore((s) => s.activeId === id)
   const padding = useStore((s) => s.prefs.terminalPadding)
   return (
@@ -90,7 +98,7 @@ function Pane({ id, multi }: { id: string; multi: boolean }): React.JSX.Element 
     >
       {multi && <PaneHeader id={id} />}
       <div className="min-h-0 flex-1" style={{ padding }}>
-        <TerminalPane sessionId={id} focused={focused} />
+        <TerminalPane sessionId={id} focused={focused} visible={visible} />
       </div>
     </div>
   )
@@ -173,7 +181,7 @@ export function Views(): React.JSX.Element {
         const box = boxes.get(id)
         return (
           <div key={id} className={cn('absolute', !box && 'hidden')} style={box && toStyle(box)}>
-            <Pane id={id} multi={multi} />
+            <Pane id={id} multi={multi} visible={!!box} />
           </div>
         )
       })}

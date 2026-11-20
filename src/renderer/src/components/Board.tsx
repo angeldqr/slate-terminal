@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from 'motion/react'
 import { GitBranchIcon, PaperPlaneTiltIcon, XIcon } from '@phosphor-icons/react'
 import { cn } from '@renderer/lib/utils'
@@ -65,11 +65,18 @@ export function Board(): React.JSX.Element {
   // Lo último de cada pantalla, cada segundo (solo mientras el tablero está abierto).
   useEffect(() => {
     const list = ids ? ids.split(',') : []
+    // Solo se escribe el estado si alguna pantalla cambió: un tablero quieto no se redibuja.
     const read = (): void =>
-      void window.slate.sessions.screens(list, LINES).then((next) => {
-        setScreens(next)
-        setNow(Date.now())
-      })
+      void window.slate.sessions
+        .screens(list, LINES)
+        .then((next) =>
+          setScreens((prev) =>
+            Object.keys(next).length === Object.keys(prev).length &&
+            Object.entries(next).every(([id, text]) => prev[id] === text)
+              ? prev
+              : next
+          )
+        )
     const first = setTimeout(read)
     const timer = setInterval(() => document.visibilityState === 'visible' && read(), SCREEN_MS)
     return () => (clearTimeout(first), clearInterval(timer))
@@ -101,6 +108,12 @@ export function Board(): React.JSX.Element {
   // un agente que lanza otros no te quita el teclado.
   useEffect(() => {
     if (!document.activeElement?.closest('.xterm')) root.current?.focus()
+  }, [])
+
+  // El reloj de "hace 3 min": cada 15 s basta para una escala de minutos.
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 15_000)
+    return () => clearInterval(timer)
   }, [])
 
   const counts = Object.fromEntries(
@@ -235,7 +248,8 @@ export function Board(): React.JSX.Element {
   )
 }
 
-function Card({
+// Memorizada: solo se redibuja la tarjeta cuya sesión, pantalla o cambios se movieron.
+const Card = memo(function Card({
   session: s,
   index,
   screen,
@@ -308,4 +322,4 @@ function Card({
       </pre>
     </motion.button>
   )
-}
+})

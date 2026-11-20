@@ -983,8 +983,41 @@ function Advanced(): React.JSX.Element {
   const [info, setInfo] = useState<AppInfo | null>(null)
   // Si el host se cae, sus sesiones terminan y la cuenta cambia: se vuelve a preguntar.
   useEffect(() => void window.slate.app.info().then(setInfo), [count])
+  const gpu = useStore((s) => s.prefs.gpu)
+  // "enabled" o "enabled_on": Chromium dibuja de verdad con la GPU.
+  const onGpu =
+    !!info?.gpu.on && /^enabled/.test(info.gpu.webgl) && /^enabled/.test(info.gpu.compositing)
+  const gpuText = !info
+    ? ''
+    : !info.gpu.on
+      ? 'Apagada: todo se dibuja con el procesador.'
+      : onGpu
+        ? 'Activa: los terminales se dibujan con WebGL y la ventana se compone en la GPU.'
+        : 'Encendida, pero Chromium no la está usando (controlador no compatible).'
   return (
     <>
+      <Group title="Rendimiento">
+        <Row
+          label="Aceleración por GPU"
+          description={
+            <>
+              {gpuText}
+              {info && gpu !== info.gpu.on && (
+                <span className="mt-1 block text-foreground">
+                  Se aplica al reiniciar Slate. Con «Mantener las sesiones al salir», siguen vivas.
+                </span>
+              )}
+            </>
+          }
+        >
+          {info && gpu !== info.gpu.on && (
+            <button onClick={() => window.slate.app.relaunch()} className={outlineButton}>
+              Reiniciar
+            </button>
+          )}
+          <Switch aria-label="Aceleración por GPU" checked={gpu} onCheckedChange={setPref('gpu')} />
+        </Row>
+      </Group>
       <Group title="Sesiones en segundo plano">
         <Row
           label="Host de sesiones"
