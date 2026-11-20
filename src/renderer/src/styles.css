@@ -199,6 +199,12 @@ body {
   backdrop-filter: none;
 }
 
+/* Paneles anclados: una superficie algo elevada, sin desenfoque sobre la terminal. */
+.panel-surface {
+  background: color-mix(in oklab, var(--sidebar) 94%, var(--background));
+  box-shadow: inset 1px 0 0 var(--highlight);
+}
+
 /* Menús y diálogos: entran creciendo desde el 98 % hacia donde se abrieron, y salen igual. */
 [data-slot='dropdown-menu-content'],
 [data-slot='dropdown-menu-sub-content'],

@@ -789,6 +789,53 @@ await shot2('cambios-diff')
 await first.locator('nav').getByText('+1', { exact: true }).waitFor({ timeout: 5000 })
 console.log('· panel de cambios: archivo nuevo, diff y conteo en la barra lateral')
 
+// Abrir y cerrar Cambios no debe dejar el lienzo WebGL de xterm a medias. El panel reserva su
+// ancho de una vez y anima solo su superficie; se comprueban el búfer y los canvas tras cada ciclo.
+const resizeMarker = 'slate-refit-estable'
+await first.evaluate(
+  ({ id, marker }) => window.slate.sessions.write(id, `Write-Output '${marker}'\r`),
+  { id: third.id, marker: resizeMarker }
+)
+const bufferedMarker = () =>
+  first.evaluate(
+    ({ id, marker }) => window.slate.sessions.buffer(id).then((text) => text.includes(marker)),
+    { id: third.id, marker: resizeMarker }
+  )
+const validCanvas = () =>
+  first.evaluate(() =>
+    [...document.querySelectorAll('.xterm-screen canvas')].some((canvas) => {
+      const screen = canvas.closest('.xterm-screen')
+      return !!screen?.getClientRects().length && canvas.width > 0 && canvas.height > 0
+    })
+  )
+for (let i = 0; i < 40 && !(await bufferedMarker()); i++) await first.waitForTimeout(100)
+assert.equal(await bufferedMarker(), true, 'la última salida llegó al búfer antes de redimensionar')
+assert.equal(await validCanvas(), true, 'el canvas del terminal tiene un tamaño válido')
+const terminalWidth = () =>
+  first.evaluate(
+    () =>
+      [...document.querySelectorAll('.xterm-screen')]
+        .find((screen) => screen.getClientRects().length)
+        ?.getBoundingClientRect().width ?? 0
+  )
+const narrowWidth = await terminalWidth()
+for (let i = 0; i < 3; i++) {
+  await first.keyboard.press('Control+Shift+G')
+  await first.waitForTimeout(350)
+  assert.equal(await panel.evaluate((el) => el.getBoundingClientRect().width), 0)
+  assert.ok((await terminalWidth()) > narrowWidth, 'al cerrar, el terminal recupera el ancho')
+  assert.equal(await bufferedMarker(), true, 'la salida se conserva al cerrar Cambios')
+  assert.equal(await validCanvas(), true, 'el canvas conserva un tamaño válido al cerrar')
+  await first.keyboard.press('Control+Shift+G')
+  await first.waitForTimeout(350)
+  assert.equal(await panel.evaluate((el) => el.getBoundingClientRect().width), 480)
+  assert.equal(await terminalWidth(), narrowWidth, 'al abrir, el terminal vuelve al mismo ancho')
+  assert.equal(await bufferedMarker(), true, 'la salida se conserva al abrir Cambios')
+  assert.equal(await validCanvas(), true, 'el canvas conserva un tamaño válido al abrir')
+}
+await shot2('cambios-refit')
+console.log('· Cambios se abre y cierra sin corromper el lienzo del terminal')
+
 // Alcances y vista de árbol del panel.
 await panel.getByRole('tab', { name: 'Sin guardar' }).click()
 await panel.getByText('hola desde la rama').waitFor({ timeout: 8000 })

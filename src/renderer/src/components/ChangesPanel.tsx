@@ -515,7 +515,7 @@ function Actions({
 
   const PrimaryIcon = ACTION_ICON.merge
   return (
-    <footer className="space-y-2 border-t border-border p-3">
+    <footer className="space-y-2 border-t border-border/80 bg-sidebar/45 p-3">
       <textarea
         value={message}
         onChange={(e) => setMessage(e.target.value)}
@@ -593,29 +593,66 @@ function Actions({
 }
 
 // Panel de cambios: a la derecha del terminal, lo que la sesión activa ha tocado.
-// Entra deslizando su ancho (200 ms), igual que la barra lateral.
+// Reserva su ancho de una vez y desliza solo su superficie, para no redibujar xterm por cada frame.
 export function ChangesPanel(): React.JSX.Element {
   const open = useStore((s) => s.changes)
   const id = useStore((s) => s.activeId)
-  const width = useStore((s) => s.prefs.changesWidth)
+  const savedWidth = useStore((s) => s.prefs.changesWidth)
+  const panelMs = useStore((s) => s.prefs.panelMs)
+  const reduce = useReducedMotion()
   const [dragging, setDragging] = useState(false)
+  const [present, setPresent] = useState(open)
+  const [dragWidth, setDragWidth] = useState<number | null>(null)
+  const width = dragWidth ?? savedWidth
+  const occupiesSpace = open || present
+
+  // El terminal cambia de tamaño una vez al abrir y una vez al terminar de cerrar. Animar el ancho
+  // del contenedor forzaba a xterm/WebGL a repintarse en cada frame y podía dejar el lienzo corrupto.
+  useEffect(() => {
+    if (!open) return
+    const frame = requestAnimationFrame(() => setPresent(true))
+    return () => cancelAnimationFrame(frame)
+  }, [open])
+
   return (
     <aside
       aria-label="Cambios"
       inert={!open}
-      style={{ width: open ? width : 0 }}
+      style={{ width: occupiesSpace ? width : 0 }}
       className={cn(
         'relative shrink-0 overflow-hidden',
-        !dragging && 'transition-[width] duration-(--panel-ms) ease-drawer',
-        open && 'border-l border-border'
+        occupiesSpace && 'border-l border-border',
+        dragging && 'select-none'
       )}
     >
-      {open && <ResizeHandle width={width} onDragging={setDragging} />}
+      {open && (
+        <ResizeHandle
+          width={width}
+          onResize={setDragWidth}
+          onCommit={(next) => {
+            setDragWidth(null)
+            if (next !== savedWidth) setPrefs({ changesWidth: next })
+          }}
+          onDragging={setDragging}
+        />
+      )}
       <MotionConfig reducedMotion="user">
-        {/* Por sesión: al cambiar de sesión todo vuelve a empezar, plegado. */}
-        <DiffPool>
-          <PanelBody key={id ?? 'ninguna'} id={id} open={open} width={width} />
-        </DiffPool>
+        <AnimatePresence initial={false} onExitComplete={() => !open && setPresent(false)}>
+          {open && (
+            <motion.div
+              initial={{ opacity: 0, x: '5%' }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: '5%' }}
+              transition={{ duration: reduce ? 0 : panelMs / 1000, ease: [0.32, 0.72, 0, 1] }}
+              className="h-full w-full will-change-transform"
+            >
+              {/* Por sesión: al cambiar de sesión todo vuelve a empezar, plegado. */}
+              <DiffPool>
+                <PanelBody key={id ?? 'ninguna'} id={id} open={open} width={width} />
+              </DiffPool>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </MotionConfig>
     </aside>
   )
@@ -624,13 +661,30 @@ export function ChangesPanel(): React.JSX.Element {
 // El borde izquierdo del panel: se arrastra para ensancharlo (o con las flechas, con el foco).
 function ResizeHandle({
   width,
+  onResize,
+  onCommit,
   onDragging
 }: {
   width: number
+  onResize: (width: number) => void
+  onCommit: (width: number) => void
   onDragging: (on: boolean) => void
 }): React.JSX.Element {
   const { min, max } = LIMITS.changesWidth
   const clamp = (w: number): number => Math.round(Math.min(max, Math.max(min, w)))
+  const drag = useRef<{ id: number; startX: number; startWidth: number; width: number } | null>(
+    null
+  )
+
+  const finish = (commit: boolean): void => {
+    const current = drag.current
+    if (!current) return
+    drag.current = null
+    onDragging(false)
+    if (commit) onCommit(current.width)
+    else onResize(current.startWidth)
+  }
+
   return (
     <div
       role="separator"
@@ -645,17 +699,25 @@ function ResizeHandle({
         if (step) setPrefs({ changesWidth: clamp(width + step) })
       }}
       onPointerDown={(e) => {
-        const startX = e.clientX
+        if (e.button !== 0) return
+        e.currentTarget.setPointerCapture(e.pointerId)
+        drag.current = { id: e.pointerId, startX: e.clientX, startWidth: width, width }
         onDragging(true)
-        const move = (ev: PointerEvent): void =>
-          setPrefs({ changesWidth: clamp(width + startX - ev.clientX) })
-        const up = (): void => {
-          onDragging(false)
-          removeEventListener('pointermove', move)
-          removeEventListener('pointerup', up)
-        }
-        addEventListener('pointermove', move)
-        addEventListener('pointerup', up)
+      }}
+      onPointerMove={(e) => {
+        const current = drag.current
+        if (!current || current.id !== e.pointerId) return
+        current.width = clamp(current.startWidth + current.startX - e.clientX)
+        onResize(current.width)
+      }}
+      onPointerUp={(e) => {
+        if (drag.current?.id === e.pointerId) finish(true)
+      }}
+      onPointerCancel={(e) => {
+        if (drag.current?.id === e.pointerId) finish(false)
+      }}
+      onLostPointerCapture={() => {
+        finish(false)
       }}
       className="group absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize outline-none"
     >

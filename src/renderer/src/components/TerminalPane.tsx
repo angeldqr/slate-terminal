@@ -170,15 +170,33 @@ export function TerminalPane({
       settle = undefined
       sessions.resize(sessionId, term.cols, term.rows)
     }
-    const resize = (): void => {
+    let resizeFrame = 0
+    // FitAddon modifica varios canvas internos. Agrupar las notificaciones de ResizeObserver evita
+    // que una misma pasada de layout los redimensione más de una vez.
+    const fitNow = (final = false): void => {
+      resizeFrame = 0
       if (!host.current?.offsetWidth) return // oculta: xterm no puede medir
       fit.fit()
       clearTimeout(settle)
-      settle = setTimeout(tell, 80)
+      if (final) {
+        tell()
+        // WebGL puede conservar una región anterior tras un cambio brusco de columnas. El último
+        // repintado cubre todo el viewport cuando un panel termina de entrar o salir.
+        if (term.rows) term.refresh(0, term.rows - 1)
+      } else {
+        settle = setTimeout(tell, 80)
+      }
     }
-    refit.current = resize
+    const resize = (): void => {
+      cancelAnimationFrame(resizeFrame)
+      resizeFrame = requestAnimationFrame(() => fitNow())
+    }
+    refit.current = () => {
+      cancelAnimationFrame(resizeFrame)
+      fitNow(true)
+    }
     // Al soltar el divisor el proceso se entera en el acto: lo que se escriba ya cae al ancho nuevo.
-    const release = (): void => void (settle && tell())
+    const release = (): void => refit.current()
     addEventListener('pointerup', release)
     addEventListener('pointercancel', release)
     addEventListener('blur', release)
@@ -221,6 +239,7 @@ export function TerminalPane({
       alive = false
       terminals.delete(sessionId)
       clearTimeout(settle)
+      cancelAnimationFrame(resizeFrame)
       removeEventListener('pointerup', release)
       removeEventListener('pointercancel', release)
       removeEventListener('blur', release)
