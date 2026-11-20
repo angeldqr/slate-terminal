@@ -124,25 +124,70 @@ const patchView = (viewId: string, change: (layout: Layout) => Layout): View[] =
 
 const newView = (sessionId: string): View => ({ id: crypto.randomUUID(), layout: pane(sessionId) })
 
-// ponytail: la disposición de las vistas no se guarda; al recargar cada sesión vuelve a su propia
-// vista. Se guarda cuando el host mantenga las sesiones vivas entre reinicios (roadmap).
-// Carga inicial: carpetas guardadas, agentes instalados y las sesiones que siguen vivas en main.
+type SavedLayout = { views: View[]; activeId: string | null }
+
+// Las vistas guardadas, sin las sesiones que ya no existen; las que no estaban en ninguna (o
+// llegaron después) van cada una a su vista.
+function restoreViews(saved: View[], ids: string[]): View[] {
+  const views = saved.flatMap((v) => {
+    let layout: Layout | null = v.layout
+    for (const leaf of leaves(v.layout))
+      if (layout && !ids.includes(leaf)) layout = remove(layout, leaf)
+    return layout ? [{ ...v, layout }] : []
+  })
+  const placed = new Set(views.flatMap((v) => leaves(v.layout)))
+  return [...views, ...ids.filter((id) => !placed.has(id)).map(newView)]
+}
+
+// La disposición se guarda cuando se calma: al volver a abrir Slate, las sesiones que siguieron
+// vivas en el host aparecen como estaban, divididas igual y con la misma activa.
+let savedViews: View[] | null = null
+let savedActive: string | null = null
+let pendingLayout: ReturnType<typeof setTimeout> | undefined
+function saveLayout(): void {
+  if (state.views === savedViews && state.activeId === savedActive) return
+  savedViews = state.views
+  savedActive = state.activeId
+  clearTimeout(pendingLayout)
+  pendingLayout = setTimeout(
+    () => slate.store.write('layout', { views: state.views, activeId: state.activeId }),
+    300
+  )
+}
+
+// Carga inicial: carpetas guardadas, agentes instalados y las sesiones vivas (las que se crean y
+// las que el host mantuvo con Slate cerrado), en la disposición que tenían.
 export async function init(): Promise<void> {
-  const [projects, agents, sessions, prefs] = await Promise.all([
+  const [projects, agents, sessions, prefs, layout, restored] = await Promise.all([
     slate.store.read<Project[]>('projects', []),
     slate.agents.detect(),
     slate.sessions.list(),
-    slate.store.read<Partial<Prefs>>('prefs', {})
+    slate.store.read<Partial<Prefs>>('prefs', {}),
+    slate.store.read<SavedLayout | null>('layout', null),
+    slate.sessions.restored()
   ])
+  const ids = sessions.map((s) => s.id)
+  const views = restoreViews(layout?.views ?? [], ids)
   setState({
     // Lo guardado encima de los valores por defecto: una preferencia nueva no rompe un prefs.json viejo.
     prefs: { ...DEFAULT_PREFS, ...prefs },
     projects,
     agents,
     sessions: sessions.map((s) => ({ ...s, unread: false })),
-    views: sessions.map((s) => newView(s.id)),
-    activeId: sessions[0]?.id ?? null
+    views,
+    activeId: layout?.activeId && ids.includes(layout.activeId) ? layout.activeId : (ids[0] ?? null)
   })
+  savedViews = state.views
+  savedActive = state.activeId
+  listeners.add(saveLayout)
+  // Solo al abrir Slate con sesiones que siguieron vivas; recargar la ventana no es volver.
+  if (restored) {
+    flashHint(
+      restored === 1
+        ? 'Volvió la sesión que seguía abierta'
+        : `Volvieron las ${restored} sesiones que seguían abiertas`
+    )
+  }
 
   const off = slate.sessions.onStatus((id, status) => {
     // "Sin leer" solo marca un "terminó" fuera de la vista activa; cualquier otro estado lo

@@ -3,12 +3,40 @@
 import { _electron as electron } from 'playwright'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { connect } from 'node:net'
 import { basename, join, resolve } from 'node:path'
 import assert from 'node:assert/strict'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 
 const data = resolve('.look/data')
+
+// El host de sesiones de esta carpeta de datos (ver host-protocol.ts).
+const hostPipe = () => {
+  const tag = createHash('sha256').update(data.toLowerCase()).digest('hex').slice(0, 16)
+  return process.platform === 'win32'
+    ? `\\\\.\\pipe\\slate-host-${tag}`
+    : join(data, `host-${tag}.sock`)
+}
+const hostUp = () =>
+  new Promise((done) => {
+    const sock = connect(hostPipe())
+    sock.once('connect', () => (sock.destroy(), done(true)))
+    sock.once('error', () => done(false))
+  })
+
+// Una ejecución anterior que falló a medias pudo dejar su host vivo con sesiones (Playwright
+// mata Slate de golpe): se apaga con su token antes de empezar.
+if (await hostUp()) {
+  const sock = connect(hostPipe())
+  await new Promise((done) => sock.once('connect', done))
+  const token = readFileSync(join(data, 'host-token'), 'utf8').trim()
+  sock.write(JSON.stringify({ t: 'hello', token, protocol: 2 }) + '\n')
+  sock.write(JSON.stringify({ t: 'shutdown' }) + '\n')
+  for (let i = 0; i < 40 && (await hostUp()); i++) await new Promise((r) => setTimeout(r, 200))
+  sock.destroy()
+}
 rmSync(data, { recursive: true, force: true })
 mkdirSync(data, { recursive: true })
 const repo = process.cwd()
@@ -17,7 +45,8 @@ writeFileSync(
   JSON.stringify([{ path: repo, name: basename(repo), open: true }])
 )
 // Sin avisos del sistema: los hooks de prueba llegan con la ventana sin foco.
-writeFileSync(join(data, 'prefs.json'), JSON.stringify({ notify: false }))
+// Sin mantener sesiones al salir: cada cierre deja el equipo limpio (la persistencia se prueba al final).
+writeFileSync(join(data, 'prefs.json'), JSON.stringify({ notify: false, keepAlive: false }))
 
 const app = await electron.launch({ args: ['.', `--user-data-dir=${data}`] })
 const win = await app.firstWindow()
@@ -218,9 +247,12 @@ await win.getByText(basename(repo), { exact: true }).click({ button: 'right' })
 await win.waitForTimeout(250) // deja terminar el fundido de entrada
 await shot('menu-carpeta')
 await win.getByRole('menuitem', { name: 'Claude Code' }).click()
-const claude = await win.evaluate(async () =>
-  (await window.slate.sessions.list()).find((s) => s.kind === 'claude')
-)
+// Crearla pasa por el host de sesiones: se espera a que aparezca.
+let claude
+for (let i = 0; i < 80 && !claude; i++) {
+  claude = (await win.evaluate(() => window.slate.sessions.list())).find((s) => s.kind === 'claude')
+  if (!claude) await win.waitForTimeout(100)
+}
 assert.ok(claude, 'se creó la sesión de Claude Code')
 console.log('· sesión de Claude Code creada')
 
@@ -480,7 +512,7 @@ writeFileSync(
 // Al reabrir con el tema claro guardado, la página arranca ya en claro: sin destello oscuro.
 writeFileSync(
   join(data, 'prefs.json'),
-  JSON.stringify({ theme: 'light', notify: false, tray: true })
+  JSON.stringify({ theme: 'light', notify: false, tray: true, keepAlive: false })
 )
 const again = await electron.launch({ args: ['.', `--user-data-dir=${data}`] })
 const first = await again.firstWindow()
@@ -638,5 +670,73 @@ const quitStart = Date.now()
 await again.close()
 assert.ok(Date.now() - quitStart < 8000, 'sale en pocos segundos con sesiones vivas')
 console.log('· con la bandeja, cerrar solo esconde la ventana; salir con sesiones vivas no cuelga')
+
+// Sesiones persistentes: con Slate cerrado la shell sigue viva en el host, y al reabrirlo vuelve
+// con lo que imprimió y se le puede seguir escribiendo.
+// waitForFunction no espera a funciones async: se sondea a mano.
+const output = async (w, id, text) => {
+  for (let i = 0; i < 70; i++) {
+    if ((await w.evaluate((x) => window.slate.sessions.buffer(x), id)).includes(text)) return
+    await w.waitForTimeout(150)
+  }
+  throw new Error(`no salió "${text.trim()}" en la sesión`)
+}
+writeFileSync(join(data, 'prefs.json'), JSON.stringify({ notify: false, keepAlive: true }))
+writeFileSync(join(data, 'layout.json'), 'null')
+const keep = await electron.launch({ args: ['.', `--user-data-dir=${data}`] })
+const kw = await keep.firstWindow()
+await kw.getByText('Todo listo en repo').waitFor()
+await kw.getByRole('button', { name: 'Nueva shell' }).click()
+await kw.waitForSelector('.xterm-screen')
+const [kept] = await kw.evaluate(() => window.slate.sessions.list())
+await kw.evaluate((id) => window.slate.sessions.write(id, 'echo antes-de-cerrar\r'), kept.id)
+await output(kw, kept.id, 'antes-de-cerrar\r\n')
+// Una segunda shell a su derecha: la disposición dividida también debe volver.
+await kw.keyboard.press('Control+Shift+D')
+for (let i = 0; i < 80 && (await kw.evaluate(() => window.slate.sessions.list())).length < 2; i++) {
+  await kw.waitForTimeout(100)
+}
+await kw.waitForTimeout(600) // la disposición se guarda cuando se calma
+await keep.close()
+assert.ok(await hostUp(), 'el host sigue vivo con Slate cerrado')
+
+const back = await electron.launch({ args: ['.', `--user-data-dir=${data}`] })
+const bw = await back.firstWindow()
+await bw.getByText('Volvieron las 2 sesiones que seguían abiertas').waitFor({ timeout: 8000 })
+const returned = await bw.evaluate(() => window.slate.sessions.list())
+assert.ok(
+  returned.some((x) => x.id === kept.id),
+  'es la misma sesión, no una nueva'
+)
+assert.equal(await bw.locator('.xterm-screen:visible').count(), 2, 'vuelven divididas como estaban')
+assert.ok(
+  (await bw.evaluate((id) => window.slate.sessions.buffer(id), kept.id)).includes('antes-de-cerrar')
+)
+await bw.evaluate((id) => window.slate.sessions.write(id, 'echo despues-de-volver\r'), kept.id)
+await output(bw, kept.id, 'despues-de-volver\r\n')
+await bw.waitForTimeout(600)
+await bw.screenshot({ path: '.look/persistente.png' })
+console.log(
+  '· sesiones persistentes: siguen vivas con Slate cerrado y vuelven con lo que imprimieron'
+)
+
+// Recargar la ventana no es volver: las sesiones y la división siguen, sin repetir el aviso.
+await bw.reload()
+await bw.waitForSelector('.xterm-screen')
+await bw.waitForTimeout(800)
+assert.equal(
+  await bw.locator('.xterm-screen:visible').count(),
+  2,
+  'la división sigue tras recargar'
+)
+assert.equal(await bw.getByText(/^Volvi/).count(), 0, 'recargar no repite el aviso')
+console.log('· recargar la ventana conserva sesiones y disposición, sin repetir el aviso')
+
+// Sin mantenerlas, salir detiene las sesiones y el host se va.
+await bw.evaluate(() => window.slate.store.write('prefs', { notify: false, keepAlive: false }))
+await back.close()
+for (let i = 0; i < 30 && (await hostUp()); i++) await new Promise((r) => setTimeout(r, 200))
+assert.equal(await hostUp(), false, 'sin mantener sesiones, el host se detiene al salir')
+console.log('· sin mantenerlas, salir detiene el host')
 
 console.log('look: ok · capturas en .look/')

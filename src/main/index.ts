@@ -19,10 +19,11 @@ import * as sessions from './sessions'
 import { currentBranch, repoRoot } from './git'
 import * as changes from './changes'
 import { handleMcp } from './mcp'
+import { HostVersionError, replaceHost, shutdownHost, startHost } from './host-client'
 import type { Notice, SessionKind, SessionOpts } from '../shared/types'
 
 // Solo estos archivos se pueden leer o escribir desde el renderer.
-const STORES = new Set(['prefs', 'projects'])
+const STORES = new Set(['prefs', 'projects', 'layout'])
 
 let win: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -44,7 +45,8 @@ function setTray(on: boolean): void {
       Menu.buildFromTemplate([
         { label: 'Abrir Slate', click: showWindow },
         { type: 'separator' },
-        { label: 'Salir', click: () => app.quit() }
+        { label: 'Salir', click: () => app.quit() },
+        { label: 'Salir y detener las sesiones', click: () => ((stopOnQuit = true), app.quit()) }
       ])
     )
     tray.on('click', showWindow)
@@ -54,12 +56,24 @@ function setTray(on: boolean): void {
   }
 }
 
-type SavedPrefs = { tray?: unknown; theme?: unknown; orchestration?: unknown } | null
+type SavedPrefs = {
+  tray?: unknown
+  theme?: unknown
+  orchestration?: unknown
+  keepAlive?: unknown
+} | null
 
-// Lo que de las preferencias aplica main: la bandeja y si Claude Code recibe el MCP de Slate.
+// Al salir, ¿las sesiones siguen vivas en el host? Sí por defecto; `stopOnQuit` lo fuerza a no
+// para una salida concreta (la opción de la bandeja).
+let keepAlive = true
+let stopOnQuit = false
+
+// Lo que de las preferencias aplica main: la bandeja, si Claude Code recibe el MCP de Slate y si
+// las sesiones sobreviven al cierre.
 function applyPrefs(prefs: SavedPrefs): void {
   setTray(prefs?.tray === true)
   sessions.setOrchestration(prefs?.orchestration !== false)
+  keepAlive = prefs?.keepAlive !== false
 }
 
 // El tema guardado, ya resuelto: la ventana y la página pintan con él desde el primer frame.
@@ -134,6 +148,11 @@ function registerIpc(): void {
     })
   )
   ipcMain.handle('sessions:list', () => sessions.listSessions())
+  ipcMain.handle('sessions:restored', () => {
+    const n = restored
+    restored = 0
+    return n
+  })
   ipcMain.handle('sessions:buffer', (_, id: string) => sessions.readBuffer(id))
   ipcMain.handle('sessions:rename', (_, id: string, title: string) =>
     sessions.renameSession(id, title)
@@ -188,7 +207,18 @@ function registerIpc(): void {
   ipcMain.on('win:close', () => win?.close())
 }
 
+// Un solo Slate por carpeta de datos: dos se pelearían por el host de sesiones (el segundo
+// echaría al primero, que daría por terminadas sesiones que siguen vivas). El segundo solo
+// trae al frente al que ya está abierto.
+const single = app.requestSingleInstanceLock()
+if (!single) app.quit()
+app.on('second-instance', showWindow)
+
+// Cuántas sesiones volvieron del host al arrancar: el aviso se da una vez, no al recargar.
+let restored = 0
+
 app.whenReady().then(async () => {
+  if (!single) return
   electronApp.setAppUserModelId('com.slate.terminal')
   app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
 
@@ -197,6 +227,31 @@ app.whenReady().then(async () => {
     if (win && !win.isDestroyed()) win.webContents.send(channel, ...args)
   })
   await startHookServer(sessions.handleHook, handleMcp)
+  // Las sesiones viven en el host: se busca (o se lanza) y se recuperan las que siguieron vivas,
+  // antes de abrir la ventana para que aparezcan desde el primer momento.
+  try {
+    await startHost().catch(async (err) => {
+      if (!(err instanceof HostVersionError)) throw err
+      const choice = dialog.showMessageBoxSync({
+        type: 'warning',
+        title: 'Slate',
+        message: 'Hay sesiones abiertas de otra versión de Slate',
+        detail:
+          'Siguen trabajando en segundo plano, pero esta versión no puede recuperarlas. Para continuar hay que detenerlas.',
+        buttons: ['Detenerlas y continuar', 'Salir'],
+        defaultId: 0,
+        cancelId: 1
+      })
+      if (choice === 1) throw new Error('')
+      await replaceHost()
+    })
+    restored = await sessions.restoreSessions()
+  } catch (err) {
+    if (!(err as Error).message) return app.exit(0)
+    dialog.showErrorBox('Slate no pudo arrancar sus sesiones', (err as Error).message)
+    app.exit(1)
+    return
+  }
   registerIpc()
   applyPrefs(readJson<SavedPrefs>('prefs', null))
   createWindow()
@@ -206,17 +261,17 @@ app.whenReady().then(async () => {
   })
 })
 
-// Antes de salir se cierran las sesiones y se espera a que terminen; luego se sale de verdad.
-// ponytail: salir mata las sesiones (con la bandeja, cerrar solo esconde la ventana); el host que
-// las mantiene vivas entre reinicios llega en el roadmap.
+// Al salir, las sesiones se quedan trabajando en el host y Slate las recupera al volver. Si no
+// deben mantenerse, se cierran, se espera a que terminen y el host se va; luego se sale de verdad.
 // Un segundo "Salir" mientras se espera reutiliza la misma espera en vez de salir antes de tiempo.
 let sessionsClosed = false
 let closing: Promise<void> | undefined
 app.on('before-quit', (e) => {
   quitting = true
-  if (sessionsClosed) return
+  if (sessionsClosed || (keepAlive && !stopOnQuit)) return
   e.preventDefault()
   closing ??= sessions.closeAll().finally(() => {
+    shutdownHost()
     sessionsClosed = true
     app.quit()
   })

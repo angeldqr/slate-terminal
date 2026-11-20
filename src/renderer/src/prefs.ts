@@ -21,6 +21,7 @@ export type Prefs = {
   taskAgents: SessionKind[]
   taskIsolate: boolean
   orchestration: boolean // Claude Code recibe el MCP de Slate para dirigir a otros agentes
+  keepAlive: boolean // las sesiones siguen vivas en el host al salir de Slate
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -38,7 +39,8 @@ export const DEFAULT_PREFS: Prefs = {
   tray: false,
   taskAgents: ['claude'],
   taskIsolate: true,
-  orchestration: true
+  orchestration: true,
+  keepAlive: true
 }
 
 // JetBrains Mono viene con Slate; las demás son las monoespaciadas que trae Windows.

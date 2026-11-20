@@ -16,11 +16,16 @@ function on<A extends unknown[]>(channel: string, fn: (...args: A) => void): () 
   return () => ipcRenderer.removeListener(channel, listener)
 }
 
+// Los archivos de datos que el renderer puede leer y escribir (main tiene la misma lista).
+type StoreName = 'prefs' | 'projects' | 'layout'
+
 const api = {
   sessions: {
     create: (cwd: string, kind?: SessionKind, opts?: SessionOpts): Promise<SessionInfo> =>
       ipcRenderer.invoke('sessions:create', cwd, kind, opts),
     list: (): Promise<SessionInfo[]> => ipcRenderer.invoke('sessions:list'),
+    // Cuántas volvieron del host al abrir Slate (solo la primera vez que se pregunta).
+    restored: (): Promise<number> => ipcRenderer.invoke('sessions:restored'),
     buffer: (id: string): Promise<string> => ipcRenderer.invoke('sessions:buffer', id),
     rename: (id: string, title: string): Promise<void> =>
       ipcRenderer.invoke('sessions:rename', id, title),
@@ -48,9 +53,9 @@ const api = {
     pr: (id: string, msg: string): Promise<string> => ipcRenderer.invoke('git:pr', id, msg)
   },
   store: {
-    read: <T>(name: 'prefs' | 'projects', fallback: T): Promise<T> =>
+    read: <T>(name: StoreName, fallback: T): Promise<T> =>
       ipcRenderer.invoke('store:read', name, fallback),
-    write: (name: 'prefs' | 'projects', data: unknown): Promise<void> =>
+    write: (name: StoreName, data: unknown): Promise<void> =>
       ipcRenderer.invoke('store:write', name, data)
   },
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:pickFolder'),

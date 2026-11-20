@@ -14,7 +14,14 @@ import { reducedMotion } from '@renderer/motion'
 import { closeOverlay } from '@renderer/overlays'
 import { DEFAULT_PREFS, FONTS, fontStack, type CursorStyle, type Prefs } from '@renderer/prefs'
 import { keysOf, SHORTCUTS } from '@renderer/shortcuts'
-import { setPrefs, testNotification, useStore } from '@renderer/store'
+import {
+  closeSession,
+  flashHint,
+  getState,
+  setPrefs,
+  testNotification,
+  useStore
+} from '@renderer/store'
 import { applyTheme, setTheme, THEMES } from '@renderer/theme'
 import { GlowingEffect } from './ui/glowing-effect'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
@@ -421,7 +428,7 @@ function TerminalSection(): React.JSX.Element {
 }
 
 function Notifications(): React.JSX.Element {
-  const { notify, sound, tray } = useStore((s) => s.prefs)
+  const { notify, sound, tray, keepAlive } = useStore((s) => s.prefs)
   return (
     <>
       <Group title="Avisos del sistema">
@@ -459,6 +466,22 @@ function Notifications(): React.JSX.Element {
             onCheckedChange={setPref('tray')}
           />
         </Row>
+        <Row
+          label="Mantener las sesiones al salir"
+          description="Los agentes siguen trabajando con Slate cerrado y vuelven, tal cual, al abrirlo."
+        >
+          <Switch
+            aria-label="Mantener las sesiones al salir"
+            checked={keepAlive}
+            onCheckedChange={setPref('keepAlive')}
+          />
+        </Row>
+        <Row
+          label="Detener todas las sesiones"
+          description="Cierra ahora todas las terminales, también las que siguen trabajando en segundo plano."
+        >
+          <StopAllButton />
+        </Row>
       </Group>
     </>
   )
@@ -488,6 +511,36 @@ const CONTENT: Record<SectionId, () => React.JSX.Element> = {
 }
 
 // Restablecer pide un segundo clic; se olvida a los 3 s.
+// Pide un segundo clic: cierra agentes que pueden estar a medias. Se olvida a los 3 s.
+function StopAllButton(): React.JSX.Element {
+  const count = useStore((s) => s.sessions.length)
+  const [asking, setAsking] = useState(false)
+  useEffect(() => {
+    if (!asking) return
+    const t = setTimeout(() => setAsking(false), 3000)
+    return () => clearTimeout(t)
+  }, [asking])
+  return (
+    <button
+      disabled={!count}
+      onClick={() => {
+        if (!asking) return setAsking(true)
+        getState().sessions.forEach((x) => closeSession(x.id))
+        flashHint(count === 1 ? 'Se detuvo la sesión' : `Se detuvieron las ${count} sesiones`)
+        setAsking(false)
+      }}
+      className={cn(
+        'h-8 shrink-0 rounded-sm border px-3 text-[12px] transition-colors duration-120 disabled:opacity-40',
+        asking
+          ? 'border-destructive/50 text-destructive'
+          : 'border-border text-muted-foreground enabled:hover:border-muted-foreground/40 enabled:hover:text-foreground'
+      )}
+    >
+      {asking ? `¿Detener ${count}?` : 'Detener'}
+    </button>
+  )
+}
+
 function ResetButton(): React.JSX.Element {
   const [asking, setAsking] = useState(false)
   useEffect(() => {

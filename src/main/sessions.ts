@@ -3,7 +3,6 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, relative } from 'node:path'
 import { app } from 'electron'
-import * as pty from 'node-pty'
 import { Terminal } from '@xterm/headless'
 import { AGENTS } from './agents'
 import { nextStatus, type StatusEvent } from './status'
@@ -17,9 +16,11 @@ import type {
 import { writeHookSettings, removeHookSettings, writeMcpConfig } from './hooks'
 import { freeTitle, samePath } from './titles'
 import { createWorktree, removeWorktree, repoRoot, slug, worktreeNames } from './git'
+import { listRemote, RemotePty, setMeta, spawnRemote } from './host-client'
 
+// La pty vive en el host de sesiones (host.ts): sobrevive al cierre de Slate.
 type Session = SessionInfo & {
-  pty: pty.IPty
+  pty: RemotePty
   buffer: string
   quiet?: NodeJS.Timeout
   // Una copia de lo que se ve en su terminal, para que otro agente pueda leerla tal cual.
@@ -63,9 +64,9 @@ function update(s: Session, ev: StatusEvent): void {
   const status = nextStatus(s.status, ev, s.hooked)
   if (status === s.status) return
   s.status = status
+  setMeta(s.id, { status })
   send('session:status', s.id, status)
   s.waiters.forEach((wake) => wake())
-  s.screen.dispose() // la salida que llegue tarde ya no la escribe: la sesión salió del mapa
 }
 
 // Orquestación: Claude Code recibe el MCP de Slate (ver mcp.ts). Se apaga en Ajustes.
@@ -139,28 +140,7 @@ export async function createSession(
   ]
   const [file, args] = launch(parts?.join(' '))
 
-  let proc: pty.IPty
-  try {
-    proc = pty.spawn(file, args, {
-      name: 'xterm-256color',
-      cols: 100,
-      rows: 30,
-      cwd: dir,
-      env: {
-        ...process.env,
-        SLATE_SESSION_ID: id,
-        TERM_PROGRAM: 'Slate',
-        COLORTERM: 'truecolor'
-      } as Record<string, string>
-    })
-  } catch (err) {
-    // Sin proceso no hay sesión: no se dejan atrás la rama ni los archivos de la sesión.
-    removeHookSettings(id)
-    removePrompt(id)
-    if (worktree) await removeWorktree(worktree.root, worktree).catch(() => {})
-    throw err
-  }
-  const s: Session = {
+  const base: SessionInfo = {
     id,
     cwd: dir,
     kind,
@@ -174,12 +154,55 @@ export async function createSession(
     status: 'idle',
     hooked,
     worktree,
-    parent: opts.parent,
+    parent: opts.parent
+  }
+  let proc: RemotePty
+  try {
+    proc = await spawnRemote(
+      id,
+      {
+        file,
+        args,
+        cwd: dir,
+        cols: 100,
+        rows: 30,
+        env: {
+          ...process.env,
+          SLATE_SESSION_ID: id,
+          TERM_PROGRAM: 'Slate',
+          COLORTERM: 'truecolor'
+        } as Record<string, string>
+      },
+      base
+    )
+  } catch (err) {
+    // Sin proceso no hay sesión: no se dejan atrás la rama ni los archivos de la sesión.
+    removeHookSettings(id)
+    removePrompt(id)
+    if (worktree) await removeWorktree(worktree.root, worktree).catch(() => {})
+    throw err
+  }
+  const s = adopt(base, proc, '')
+  return info(s)
+}
+
+// Pone en marcha lo que Slate hace con una sesión: su pantalla espejo (con lo que ya imprimió,
+// si viene del host), los estados según su salida y la limpieza al terminar.
+function adopt(
+  base: SessionInfo,
+  proc: RemotePty,
+  buffer: string,
+  size = { cols: 100, rows: 30 }
+): Session {
+  const { id, kind, hooked } = base
+  const s: Session = {
+    ...base,
     pty: proc,
-    buffer: '',
-    screen: new Terminal({ cols: 100, rows: 30, scrollback: 2000, allowProposedApi: true }),
+    buffer,
+    screen: new Terminal({ ...size, scrollback: 2000, allowProposedApi: true }),
     waiters: new Set()
   }
+  if (buffer) s.screen.write(buffer)
   sessions.set(id, s)
 
   proc.onData((data) => {
@@ -201,7 +224,24 @@ export async function createSession(
     removeHookSettings(id)
     removePrompt(id)
   })
-  return info(s)
+  return s
+}
+
+// Al abrir Slate: las sesiones que siguieron vivas en el host (o terminaron mientras Slate
+// estaba cerrado) vuelven con lo que imprimieron. Devuelve cuántas.
+export async function restoreSessions(): Promise<number> {
+  const remote = await listRemote()
+  for (const h of remote) {
+    const meta = h.meta as SessionInfo
+    // Mientras Slate estaba cerrado sus hooks no llegaron: "trabajando" ya no es seguro. Queda en
+    // reposo hasta su próximo evento real.
+    const status = h.exited ? 'exited' : meta.status === 'working' ? 'idle' : meta.status
+    adopt({ ...meta, status }, new RemotePty(h.id), h.buffer, {
+      cols: h.cols,
+      rows: h.rows
+    })
+  }
+  return remote.length
 }
 
 const info = ({
@@ -336,7 +376,9 @@ export function waitFor(
 
 export function renameSession(id: string, title: string): void {
   const s = sessions.get(id)
-  if (s) s.title = title.trim() || s.title
+  if (!s) return
+  s.title = title.trim() || s.title
+  setMeta(id, { title: s.title })
 }
 
 export function closeSession(id: string): void {
@@ -346,14 +388,13 @@ export function closeSession(id: string): void {
   clearTimeout(s.quiet)
   s.waiters.forEach((wake) => wake())
   s.screen.dispose() // la salida que llegue tarde ya no la escribe: la sesión salió del mapa
-  if (s.status !== 'exited') s.pty.kill()
+  s.pty.kill() // el host la olvida, viva o terminada
   removeHookSettings(id)
   removePrompt(id)
 }
 
-// En Windows, matar una pty es asíncrono (lista los procesos de su consola con un ayudante y
-// vacía la salida en otro hilo): salir sin esperar deja el proceso de Slate colgado al cerrar, y
-// borrar la carpeta de una shell que sigue viva falla. Por eso se espera a que terminen, con un
+// En Windows, matar una pty es asíncrono: borrar la carpeta de una shell que sigue viva falla,
+// y apagar el host sin esperar dejaría sus consolas a medio cerrar. Por eso se espera a que terminen, con un
 // tope por si alguna no responde.
 export async function closeAndWait(ids: string[]): Promise<void> {
   const exited = ids

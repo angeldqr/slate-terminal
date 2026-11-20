@@ -1,13 +1,24 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { randomBytes } from 'node:crypto'
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 
 // Servidor local al que Claude Code manda sus hooks por HTTP y por el que habla con el MCP de
 // Slate. El token en la ruta evita que otro proceso del equipo finja eventos o use las herramientas.
-const token = randomBytes(16).toString('hex')
 const dir = join(app.getPath('userData'), 'hooks')
+const serverFile = join(dir, 'server.json')
+
+// Puerto y token se conservan entre arranques: los Claude Code que siguieron vivos en el host de
+// sesiones leyeron esta dirección al arrancar y no la vuelven a leer.
+const saved = ((): { port?: number; token?: string } => {
+  try {
+    return JSON.parse(readFileSync(serverFile, 'utf8'))
+  } catch {
+    return {}
+  }
+})()
+const token = saved.token ?? randomBytes(16).toString('hex')
 let port = 0
 
 type HookEvent = {
@@ -50,12 +61,22 @@ export function startHookServer(
       }
     })
   })
-  return new Promise((resolve) =>
-    server.listen(0, '127.0.0.1', () => {
-      port = (server.address() as { port: number }).port
-      resolve()
+  // ponytail: si el puerto de la vez anterior está ocupado se usa otro, y las sesiones que
+  // sobrevivieron pierden sus hooks y su MCP hasta que se abran de nuevo.
+  const listen = (wanted: number): Promise<void> =>
+    new Promise((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(wanted, '127.0.0.1', () => {
+        server.off('error', reject)
+        resolve()
+      })
     })
-  )
+  return listen(saved.port ?? 0)
+    .catch(() => listen(0))
+    .then(() => {
+      port = (server.address() as { port: number }).port
+      writeFileSync(serverFile, JSON.stringify({ port, token }), { mode: 0o600 })
+    })
 }
 
 const EVENTS = [
