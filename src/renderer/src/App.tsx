@@ -43,6 +43,23 @@ function Empty(): React.JSX.Element {
         />
       )}
       <div className="relative max-w-sm px-6 text-center">
+        {/* Tres tarjetas en abanico: lo que Slate pone en pantalla cuando hay agentes. */}
+        <div aria-hidden className="relative mx-auto mb-8 h-20 w-40">
+          {[-9, 0, 9].map((deg, i) => (
+            <div
+              key={deg}
+              style={{ rotate: `${deg}deg`, translate: `${deg * 3.2}px ${Math.abs(deg) * 0.7}px` }}
+              className={cn(
+                'glass absolute inset-x-6 top-0 h-16 rounded-lg p-2.5',
+                i === 1 && 'z-10'
+              )}
+            >
+              <div className="h-1.5 w-1/2 rounded-full bg-foreground/25" />
+              <div className="mt-2 h-1.5 w-3/4 rounded-full bg-foreground/10" />
+              <div className="mt-1.5 h-1.5 w-2/5 rounded-full bg-foreground/10" />
+            </div>
+          ))}
+        </div>
         <h1 className="text-[20px] font-semibold tracking-tight">
           {firstProject ? `Todo listo en ${firstProject.name}` : 'Empieza por una carpeta'}
         </h1>

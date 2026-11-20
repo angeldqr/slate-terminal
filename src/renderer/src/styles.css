@@ -114,7 +114,13 @@
   ); /* la de los paneles: arranca con decisión y aterriza suave */
   --text-2xs: 11px;
   --text-3xs: 10px;
+  --animate-skeleton: skeleton 1.4s steps(6, end) infinite;
   --animate-breathe: breathe 1.6s ease-in-out infinite; /* algo en marcha, sin prisa */
+  @keyframes skeleton {
+    50% {
+      opacity: 0.45;
+    }
+  }
   @keyframes breathe {
     50% {
       opacity: 0.55;

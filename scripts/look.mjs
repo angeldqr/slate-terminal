@@ -721,6 +721,34 @@ await shot2('cambios-diff')
 await first.locator('nav').getByText('+1', { exact: true }).waitFor({ timeout: 5000 })
 console.log('· panel de cambios: archivo nuevo, diff y conteo en la barra lateral')
 
+// Comentario al agente: llega al terminal de esa sesión. Descartar un archivo toca solo ese archivo.
+assert.equal(
+  await first.evaluate(({ id }) => window.slate.sessions.comment(id, 'echo comentario-del-panel'), {
+    id: third.id
+  }),
+  true
+)
+await first.waitForTimeout(800)
+assert.match(
+  await first.evaluate(({ id }) => window.slate.sessions.buffer(id), { id: third.id }),
+  /comentario-del-panel/,
+  'el comentario llegó al terminal'
+)
+await first.evaluate(
+  ({ id }) => window.slate.sessions.write(id, "Set-Content -Path otro.txt -Value 'x'\r"),
+  { id: third.id }
+)
+for (let i = 0; i < 40 && !existsSync(join(third.worktree.path, 'otro.txt')); i++) {
+  await first.waitForTimeout(150)
+}
+assert.equal(
+  await first.evaluate(({ id }) => window.slate.git.discardFile(id, 'otro.txt'), { id: third.id }),
+  true
+)
+assert.ok(!existsSync(join(third.worktree.path, 'otro.txt')), 'descartar quita el archivo nuevo')
+assert.ok(existsSync(join(third.worktree.path, 'hola.txt')), 'y no toca el resto')
+console.log('· comentario al agente y descartar un archivo')
+
 // Fusionar: un solo commit en main con el mensaje de la tarea; la rama y su carpeta se van.
 await panel.getByRole('button', { name: 'Fusionar en main' }).click()
 await first

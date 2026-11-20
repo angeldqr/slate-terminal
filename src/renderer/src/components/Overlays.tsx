@@ -18,6 +18,7 @@ import {
 import { cn } from '@renderer/lib/utils'
 import { SessionIcon } from './SessionIcon'
 import { Keys } from './Keys'
+import { Kbd } from '@renderer/components/ui/kbd'
 import { Settings } from './Settings'
 import { TaskComposer } from './TaskComposer'
 import { cycleTheme, THEMES } from '@renderer/theme'
@@ -162,6 +163,19 @@ function Palette(): React.JSX.Element {
           ))}
         </CommandGroup>
       </CommandList>
+      {/* Pie con las teclas que mueven la paleta. */}
+      <footer className="flex h-8 items-center gap-4 border-t border-border px-3 text-2xs text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <Kbd>↑</Kbd>
+          <Kbd>↓</Kbd> navegar
+        </span>
+        <span className="flex items-center gap-1.5">
+          <Kbd>↵</Kbd> elegir
+        </span>
+        <span className="ml-auto flex items-center gap-1.5">
+          <Kbd>Esc</Kbd> cerrar
+        </span>
+      </footer>
     </Command>
   )
 }

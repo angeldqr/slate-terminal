@@ -40,6 +40,9 @@ const api = {
     rename: (id: string, title: string): Promise<void> =>
       ipcRenderer.invoke('sessions:rename', id, title),
     close: (id: string): Promise<void> => ipcRenderer.invoke('sessions:close', id),
+    // Escribe un mensaje en el terminal de la sesión y lo envía (false si ya terminó).
+    comment: (id: string, text: string): Promise<boolean> =>
+      ipcRenderer.invoke('sessions:comment', id, text),
     write: (id: string, data: string): void => ipcRenderer.send('sessions:write', id, data),
     resize: (id: string, cols: number, rows: number): void =>
       ipcRenderer.send('sessions:resize', id, cols, rows),
@@ -63,6 +66,8 @@ const api = {
     changes: (id: string): Promise<Changes | null> => ipcRenderer.invoke('git:changes', id),
     fileDiff: (id: string, path: string, ignoreSpace = false): Promise<string> =>
       ipcRenderer.invoke('git:fileDiff', id, path, ignoreSpace),
+    discardFile: (id: string, path: string): Promise<boolean> =>
+      ipcRenderer.invoke('git:discardFile', id, path),
     commit: (id: string, msg: string): Promise<boolean> =>
       ipcRenderer.invoke('git:commit', id, msg),
     merge: (id: string, msg: string): Promise<string> => ipcRenderer.invoke('git:merge', id, msg),

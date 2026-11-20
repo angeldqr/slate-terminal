@@ -3,6 +3,7 @@ import type { SessionKind } from '../../shared/types'
 
 export type Theme = 'auto' | 'light' | 'dark'
 export type CursorStyle = 'bar' | 'block' | 'underline'
+export type DiffStyle = 'unified' | 'split'
 export type FontWeight = 'normal' | '500' | '300'
 
 export type Prefs = {
@@ -25,6 +26,8 @@ export type Prefs = {
   smoothScroll: boolean
   shell: string // la shell de las terminales nuevas ('auto' = la mejor que haya)
   codeFontSize: number // texto de los diffs
+  diffStyle: DiffStyle // apilado o lado a lado
+  hideTests: boolean // el panel de cambios oculta los archivos de prueba
   diffWrap: boolean // líneas largas del diff, ajustadas en vez de con scroll
   diffIgnoreSpace: boolean
   changesWidth: number // ancho del panel de cambios, en px
@@ -63,6 +66,8 @@ export const DEFAULT_PREFS: Prefs = {
   smoothScroll: false,
   shell: 'auto',
   codeFontSize: 13,
+  diffStyle: 'unified',
+  hideTests: false,
   diffWrap: false,
   diffIgnoreSpace: false,
   changesWidth: 480,

@@ -7,6 +7,7 @@ import {
   compareUrl,
   currentBranch,
   diffFrom,
+  discardFile,
   fileDiff,
   git,
   mergeSquash,
@@ -47,19 +48,35 @@ export async function sessionChanges(id: string): Promise<Changes | null> {
   }
 }
 
+// La ruta llega del renderer: solo se acepta si es una de las que cambiaron (así no se puede
+// leer ni tocar un .env ignorado ni nada fuera del repo).
+async function changedFile(
+  id: string,
+  path: string
+): Promise<{ root: string; from: string; file: string } | null> {
+  const t = await target(id)
+  const file = String(path)
+  if (!t || isAbsolute(file) || file.split(/[\\/]/).includes('..')) return null
+  const from = await diffFrom(t.root, t.base)
+  if (!(await changes(t.root, from)).some((f) => f.path === file)) return null
+  return { root: t.root, from, file }
+}
+
 export async function sessionFileDiff(
   id: string,
   path: string,
   ignoreSpace = false
 ): Promise<string> {
-  const t = await target(id)
-  // La ruta llega del renderer: solo se sirve si es una de las que cambiaron (así no se puede
-  // leer un .env ignorado ni nada fuera del repo).
-  const file = String(path)
-  if (!t || isAbsolute(file) || file.split(/[\\/]/).includes('..')) return ''
-  const from = await diffFrom(t.root, t.base)
-  if (!(await changes(t.root, from)).some((f) => f.path === file)) return ''
-  return fileDiff(t.root, from, file, ignoreSpace === true)
+  const f = await changedFile(id, path)
+  return f ? fileDiff(f.root, f.from, f.file, ignoreSpace === true) : ''
+}
+
+// Descarta lo cambiado en un solo archivo.
+export async function discardChangedFile(id: string, path: string): Promise<boolean> {
+  const f = await changedFile(id, path)
+  if (!f) return false
+  await discardFile(f.root, f.from, f.file)
+  return true
 }
 
 // Solo para sesiones aisladas: las demás no tienen una rama propia que fusionar o descartar.

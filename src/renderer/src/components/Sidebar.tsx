@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { MotionConfig, motion } from 'motion/react'
 import {
   CaretRightIcon,
@@ -11,6 +11,7 @@ import {
   TerminalWindowIcon
 } from '@phosphor-icons/react'
 import { cn } from '@renderer/lib/utils'
+import { ago } from '@renderer/lib/time'
 import {
   closeSession,
   groupByView,
@@ -109,6 +110,20 @@ function DangerItem({
   )
 }
 
+// Hace cuánto está en su estado; se refresca cada 30 s.
+function Since({ since }: { since: number }): React.JSX.Element {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(t)
+  }, [])
+  return (
+    <span className="ml-auto shrink-0 pl-1 text-3xs text-muted-foreground/60 tabular-nums">
+      {ago(since, now)}
+    </span>
+  )
+}
+
 // `index`: su posición en el grupo, para que las filas que llegan juntas entren escalonadas.
 function SessionRow({
   session,
@@ -202,6 +217,7 @@ function SessionRow({
               )}
             </span>
           )}
+          {!editing && <Since since={session.since} />}
         </motion.div>
       </ContextMenuTrigger>
       <ContextMenuContent
@@ -289,6 +305,13 @@ function FolderGroup({ project }: { project: Project }): React.JSX.Element {
                 project.open && 'rotate-90'
               )}
             />
+            {/* Monograma: la inicial del proyecto, para reconocerlo de un vistazo. */}
+            <span
+              aria-hidden
+              className="grid size-4 shrink-0 place-items-center rounded-[4px] bg-accent text-3xs font-semibold text-foreground uppercase"
+            >
+              {project.name.charAt(0)}
+            </span>
             <span className="truncate" title={project.path}>
               {project.name}
             </span>

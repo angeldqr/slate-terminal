@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, MotionConfig, motion, useReducedMotion } from 'motion/react'
-import { parsePatch } from 'diff'
-import type { ThemedToken } from 'shiki/core'
 import {
   ArrowClockwiseIcon,
   ArrowRightIcon,
@@ -10,6 +8,7 @@ import {
   CaretDownIcon,
   CaretRightIcon,
   CircleNotchIcon,
+  CopyIcon,
   FileIcon,
   FileMinusIcon,
   FilePlusIcon,
@@ -25,7 +24,7 @@ import {
   XIcon
 } from '@phosphor-icons/react'
 import { cn } from '@renderer/lib/utils'
-import { langOf, tokenize } from '@renderer/highlight'
+import { DiffPool, DiffView } from './DiffView'
 import {
   closeSession,
   flashHint,
@@ -37,7 +36,6 @@ import {
   useStore
 } from '@renderer/store'
 import { LIMITS } from '@renderer/prefs'
-import { useDark } from '@renderer/theme'
 import type { Changes, FileChange } from '../../../shared/types'
 import {
   DropdownMenu,
@@ -50,91 +48,11 @@ import {
 
 const { git } = window.slate
 const POLL_MS = 4000 // ponytail: sondeo mientras el panel está abierto; fs.watch si llega a pesar
-const LINES_PER_FILE = 400 // más se despliega a petición: un diff enorme no congela el panel
+
+const TEST_FILE = /(^|\/)(__tests__|tests?|spec)\/|\.(test|spec)\.[cm]?[jt]sx?$|\.check\.mts$/i
 
 const iconButton =
   'grid size-7 place-items-center rounded-sm text-muted-foreground transition-colors duration-120 hover:bg-accent hover:text-foreground'
-
-type Line = {
-  kind: ' ' | '+' | '-'
-  old?: number
-  new?: number
-  tokens: ThemedToken[] | string
-}
-type Hunk = { header: string; lines: Line[] }
-
-type RawHunk = { header: string; oldStart: number; newStart: number; lines: string[] }
-
-// El patch en bloques, sin el marcador "No newline at end of file".
-function parse(patch: string): RawHunk[] {
-  const [parsed] = parsePatch(patch)
-  return (parsed?.hunks ?? []).map((h) => ({
-    header: `@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`,
-    oldStart: h.oldStart,
-    newStart: h.newStart,
-    lines: h.lines.filter((l) => !l.startsWith('\\'))
-  }))
-}
-
-// Los primeros `max` renglones, cortando dentro del bloque donde se acaben: solo eso se resalta.
-function clip(hunks: RawHunk[], max: number): RawHunk[] {
-  const out: RawHunk[] = []
-  for (const h of hunks) {
-    if (max <= 0) break
-    out.push({ ...h, lines: h.lines.slice(0, max) })
-    max -= h.lines.length
-  }
-  return out
-}
-
-// Cada bloque se resalta entero (lado viejo y lado nuevo) para que un comentario o una cadena
-// de varias líneas se pinten bien.
-function highlight(hunks: RawHunk[], path: string, dark: boolean): Promise<Hunk[]> {
-  const lang = langOf(path)
-  return Promise.all(
-    hunks.map(async (h) => {
-      const text = (keep: string): string =>
-        h.lines
-          .filter((l) => keep.includes(l[0]))
-          .map((l) => l.slice(1).replace(/\r$/, ''))
-          .join('\n')
-      const [oldTokens, newTokens] = await Promise.all([
-        tokenize(text(' -'), lang, dark),
-        tokenize(text(' +'), lang, dark)
-      ])
-      let o = 0
-      let n = 0
-      const lines = h.lines.map((l): Line => {
-        const kind = l[0] as Line['kind']
-        if (kind === '-') return { kind, old: h.oldStart + o, tokens: oldTokens[o++] ?? '' }
-        if (kind === '+') return { kind, new: h.newStart + n, tokens: newTokens[n++] ?? '' }
-        o++
-        return { kind, old: h.oldStart + o - 1, new: h.newStart + n, tokens: newTokens[n++] ?? '' }
-      })
-      return { header: h.header, lines }
-    })
-  )
-}
-
-function Code({ tokens }: { tokens: Line['tokens'] }): React.JSX.Element {
-  if (typeof tokens === 'string') return <>{tokens}</>
-  return (
-    <>
-      {tokens.map((t, i) => (
-        <span
-          key={i}
-          style={{
-            color: t.color,
-            fontStyle: t.fontStyle && t.fontStyle & 1 ? 'italic' : undefined,
-            fontWeight: t.fontStyle && t.fontStyle & 2 ? 600 : undefined
-          }}
-        >
-          {t.content}
-        </span>
-      ))}
-    </>
-  )
-}
 
 function Diff({
   sessionId,
@@ -145,34 +63,19 @@ function Diff({
   file: FileChange
   tick: number
 }): React.JSX.Element {
-  const dark = useDark()
-  const { codeFontSize, diffWrap, diffIgnoreSpace } = useStore((s) => ({
-    codeFontSize: s.prefs.codeFontSize,
-    diffWrap: s.prefs.diffWrap,
-    diffIgnoreSpace: s.prefs.diffIgnoreSpace
-  }))
-  const [raw, setRaw] = useState<RawHunk[] | null>(null)
-  const [hunks, setHunks] = useState<Hunk[] | null>(null)
-  const [all, setAll] = useState(false)
+  const diffIgnoreSpace = useStore((s) => s.prefs.diffIgnoreSpace)
+  // null = cargando; '' = sin texto que mostrar. Se conserva el patch anterior mientras llega el nuevo.
+  const [patch, setPatch] = useState<string | null>(null)
 
-  // `tick` sube con cada sondeo del panel: el agente puede seguir editando el archivo.
+  // tick sube con cada sondeo del panel: el agente puede seguir editando el archivo.
   useEffect(() => {
     let current = true
     git
       .fileDiff(sessionId, file.path, diffIgnoreSpace)
-      .then((patch) => current && setRaw(parse(patch)))
-      .catch(() => current && setRaw([]))
+      .then((p) => current && setPatch(p))
+      .catch(() => current && setPatch(''))
     return () => void (current = false)
   }, [sessionId, file.path, tick, diffIgnoreSpace])
-
-  useEffect(() => {
-    if (!raw) return
-    let current = true
-    highlight(clip(raw, all ? Infinity : LINES_PER_FILE), file.path, dark)
-      .then((h) => current && setHunks(h))
-      .catch(() => current && setHunks([]))
-    return () => void (current = false)
-  }, [raw, all, file.path, dark])
 
   if (file.binary) {
     return (
@@ -181,58 +84,16 @@ function Diff({
       </p>
     )
   }
-  if (!hunks || !raw) return <p className="px-4 py-3 text-muted-foreground">Cargando…</p>
-  if (!hunks.length) {
+  if (patch === '') {
     return (
       <p className="px-4 py-3 text-muted-foreground">
         {diffIgnoreSpace ? 'Solo cambian espacios en blanco.' : 'Sin cambios de texto.'}
       </p>
     )
   }
-
-  const total = raw.reduce((sum, h) => sum + h.lines.length, 0)
   return (
-    <div
-      className={cn(
-        'border-t border-border bg-background/60 font-mono',
-        !diffWrap && 'overflow-x-auto'
-      )}
-      style={{ fontSize: codeFontSize, lineHeight: 1.6 }}
-    >
-      <div className={cn(!diffWrap && 'min-w-max')}>
-        {hunks.map((h, i) => {
-          return (
-            <div key={i}>
-              <div className="bg-accent/30 px-3 text-muted-foreground">{h.header}</div>
-              {h.lines.map((l, j) => (
-                <div
-                  key={j}
-                  className={cn(
-                    'grid grid-cols-[3.5ch_3.5ch_1fr] gap-x-2 pr-4 pl-2',
-                    diffWrap ? 'break-all whitespace-pre-wrap' : 'whitespace-pre',
-                    l.kind === '+' && 'bg-added/10 shadow-[inset_2px_0_var(--added)]',
-                    l.kind === '-' && 'bg-removed/10 shadow-[inset_2px_0_var(--removed)]'
-                  )}
-                >
-                  <span className="text-right text-muted-foreground/60 select-none">{l.old}</span>
-                  <span className="text-right text-muted-foreground/60 select-none">{l.new}</span>
-                  <span className="select-text">
-                    <Code tokens={l.tokens} />
-                  </span>
-                </div>
-              ))}
-            </div>
-          )
-        })}
-      </div>
-      {!all && total > LINES_PER_FILE && (
-        <button
-          onClick={() => setAll(true)}
-          className="w-full px-4 py-2 text-left font-sans text-muted-foreground hover:text-foreground"
-        >
-          Mostrar {total - LINES_PER_FILE} líneas más
-        </button>
-      )}
+    <div className="border-t border-border bg-background/60">
+      <DiffView sessionId={sessionId} path={file.path} patch={patch} />
     </div>
   )
 }
@@ -282,29 +143,32 @@ function FileRow({
   const status = STATUS[file.status]
   return (
     <div className="border-b border-border/60">
-      <button
-        onClick={onToggle}
-        aria-expanded={open}
-        title={`${status.label}: ${file.path}`}
-        className="flex h-9 w-full items-center gap-2 px-3 text-left transition-colors duration-120 hover:bg-accent/40"
-      >
-        {open ? (
-          <CaretDownIcon size={12} className="shrink-0 text-muted-foreground" />
-        ) : (
-          <CaretRightIcon size={12} className="shrink-0 text-muted-foreground" />
-        )}
-        <status.Icon size={15} className={cn('shrink-0', status.color)} />
-        {/* La carpeta se recorta por el principio: lo que importa es el final de la ruta. */}
-        <span className="flex min-w-0 flex-1">
-          {dir && (
-            <span className="min-w-0 truncate text-muted-foreground [direction:rtl]">
-              <bdi>{dir}</bdi>
-            </span>
+      <div className="group/file sticky top-0 z-[1] flex h-9 items-center bg-sidebar transition-colors duration-120 hover:bg-accent/40">
+        <button
+          onClick={onToggle}
+          aria-expanded={open}
+          title={`${status.label}: ${file.path}`}
+          className="flex h-9 min-w-0 flex-1 items-center gap-2 pr-1 pl-3 text-left"
+        >
+          {open ? (
+            <CaretDownIcon size={12} className="shrink-0 text-muted-foreground" />
+          ) : (
+            <CaretRightIcon size={12} className="shrink-0 text-muted-foreground" />
           )}
-          <span className="shrink-0">{name}</span>
-        </span>
-        <Counts add={file.add} del={file.del} />
-      </button>
+          <status.Icon size={15} className={cn('shrink-0', status.color)} />
+          {/* La carpeta se recorta por el principio: lo que importa es el final de la ruta. */}
+          <span className="flex min-w-0 flex-1">
+            {dir && (
+              <span className="min-w-0 truncate text-muted-foreground [direction:rtl]">
+                <bdi>{dir}</bdi>
+              </span>
+            )}
+            <span className="shrink-0">{name}</span>
+          </span>
+          <Counts add={file.add} del={file.del} />
+        </button>
+        <FileActions sessionId={sessionId} file={file} />
+      </div>
       <AnimatePresence initial={false}>
         {open && (
           <motion.div
@@ -319,6 +183,57 @@ function FileRow({
         )}
       </AnimatePresence>
     </div>
+  )
+}
+
+// Copiar la ruta y descartar lo de un solo archivo (con segundo clic), a la derecha de la fila.
+function FileActions({
+  sessionId,
+  file
+}: {
+  sessionId: string
+  file: FileChange
+}): React.JSX.Element {
+  const [asking, setAsking] = useState(false)
+  useEffect(() => {
+    if (!asking) return
+    const t = setTimeout(() => setAsking(false), 3000)
+    return () => clearTimeout(t)
+  }, [asking])
+  return (
+    <span className="flex shrink-0 items-center pr-1.5 opacity-0 transition-opacity duration-120 group-focus-within/file:opacity-100 group-hover/file:opacity-100">
+      <button
+        aria-label="Copiar la ruta"
+        title="Copiar la ruta"
+        onClick={() => {
+          navigator.clipboard.writeText(file.path).then(
+            () => flashHint('Ruta copiada'),
+            () => flashHint('No se pudo copiar')
+          )
+        }}
+        className={iconButton}
+      >
+        <CopyIcon size={14} />
+      </button>
+      <button
+        aria-label={asking ? 'Se pierde este cambio. ¿Descartar?' : 'Descartar este archivo'}
+        title={asking ? 'Se pierde este cambio. ¿Descartar?' : 'Descartar este archivo'}
+        onClick={() => {
+          if (!asking) return setAsking(true)
+          setAsking(false)
+          git.discardFile(sessionId, file.path).then(
+            (ok) => flashHint(ok ? 'Archivo descartado' : 'No se pudo descartar'),
+            (err) => flashHint(reason(err))
+          )
+        }}
+        className={cn(
+          iconButton,
+          asking && 'w-auto px-1.5 text-destructive hover:text-destructive'
+        )}
+      >
+        {asking ? <span className="text-[12px]">¿Descartar?</span> : <TrashIcon size={14} />}
+      </button>
+    </span>
   )
 }
 
@@ -478,7 +393,9 @@ export function ChangesPanel(): React.JSX.Element {
       {open && <ResizeHandle width={width} onDragging={setDragging} />}
       <MotionConfig reducedMotion="user">
         {/* Por sesión: al cambiar de sesión todo vuelve a empezar, plegado. */}
-        <PanelBody key={id ?? 'ninguna'} id={id} open={open} width={width} />
+        <DiffPool>
+          <PanelBody key={id ?? 'ninguna'} id={id} open={open} width={width} />
+        </DiffPool>
       </MotionConfig>
     </aside>
   )
@@ -576,7 +493,10 @@ function PanelBody({
     load().finally(() => setSpinning(false))
   }
 
-  const files = changes?.files ?? []
+  const hideTests = useStore((s) => s.prefs.hideTests)
+  const all = changes?.files ?? []
+  const files = all.filter((f) => !hideTests || !TEST_FILE.test(f.path))
+  const hidden = all.length - files.length // siguen en commit, fusión y descarte
   const add = sum(files, 'add')
   const del = sum(files, 'del')
   const allOpen = files.length > 0 && files.every((f) => expanded.has(f.path))
@@ -654,6 +574,11 @@ function PanelBody({
             />
           ))
         )}
+        {hidden > 0 && (
+          <p className="px-3 py-2 text-[12px] text-muted-foreground">
+            {hidden === 1 ? '1 archivo de prueba oculto' : `${hidden} archivos de prueba ocultos`}
+          </p>
+        )}
       </div>
 
       {id && changes?.isolated && <Actions sessionId={id} changes={changes} />}
@@ -675,7 +600,9 @@ function Empty({ title, text }: { title: string; text: string }): React.JSX.Elem
 
 // Cómo se ve el diff: ajuste de línea, espacios y tamaño del código. Se guarda en las preferencias.
 function DiffOptions(): React.JSX.Element {
-  const { diffWrap, diffIgnoreSpace, codeFontSize } = useStore((s) => ({
+  const { diffStyle, hideTests, diffWrap, diffIgnoreSpace, codeFontSize } = useStore((s) => ({
+    diffStyle: s.prefs.diffStyle,
+    hideTests: s.prefs.hideTests,
     diffWrap: s.prefs.diffWrap,
     diffIgnoreSpace: s.prefs.diffIgnoreSpace,
     codeFontSize: s.prefs.codeFontSize
@@ -691,6 +618,20 @@ function DiffOptions(): React.JSX.Element {
         <SlidersHorizontalIcon size={15} />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-60">
+        <DropdownMenuCheckboxItem
+          checked={diffStyle === 'split'}
+          onCheckedChange={(v) => setPrefs({ diffStyle: v ? 'split' : 'unified' })}
+          onSelect={(e) => e.preventDefault()}
+        >
+          Lado a lado
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem
+          checked={hideTests}
+          onCheckedChange={(v) => setPrefs({ hideTests: v })}
+          onSelect={(e) => e.preventDefault()}
+        >
+          Ocultar archivos de prueba
+        </DropdownMenuCheckboxItem>
         <DropdownMenuCheckboxItem
           checked={diffWrap}
           onCheckedChange={(v) => setPrefs({ diffWrap: v })}

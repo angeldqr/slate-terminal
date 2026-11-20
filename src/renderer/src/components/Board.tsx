@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from 'motion/react'
 import { GitBranchIcon, PaperPlaneTiltIcon, XIcon } from '@phosphor-icons/react'
+import { ago } from '@renderer/lib/time'
 import { cn } from '@renderer/lib/utils'
 import { openTask } from '@renderer/overlays'
 import { shortcutKeys } from '@renderer/shortcuts'
@@ -45,14 +46,6 @@ const STATUS: Record<Status, { label: string; dot: string }> = {
 }
 
 // "ahora", "4 min", "2 h": cuánto lleva en su estado.
-function ago(since: number, now: number): string {
-  const s = Math.max(0, Math.round((now - since) / 1000))
-  if (s < 45) return 'ahora'
-  if (s < 3600) return `${Math.round(s / 60)} min`
-  if (s < 86400) return `${Math.round(s / 3600)} h`
-  return `${Math.round(s / 86400)} d`
-}
-
 export function Board(): React.JSX.Element {
   const sessions = useStore(sidebarOrder)
   const diffStats = useStore((s) => s.diffStats)

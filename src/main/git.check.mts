@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import {
   changes,
   commitAll,
+  discardFile,
   compareUrl,
   createWorktree,
   diffFrom,
@@ -78,6 +79,19 @@ try {
     await fileDiff(wt.path, from, 'nuevo.ts'),
     lines('--- /dev/null', '+++ b/nuevo.ts', '@@ -0,0 +1,1 @@', '+export const x = 1', '')
   )
+
+  // Descartar un archivo: el modificado vuelve a como estaba, el nuevo desaparece; el resto sigue.
+  await discardFile(wt.path, from, 'nuevo.ts')
+  assert.equal(existsSync(join(wt.path, 'nuevo.ts')), false, 'el nuevo se quita')
+  await discardFile(wt.path, from, 'a.txt')
+  assert.doesNotMatch(
+    readFileSync(join(wt.path, 'a.txt'), 'utf8'),
+    /mundo/,
+    'el modificado se restaura'
+  )
+  assert.equal(existsSync(join(wt.path, 'viejo.txt')), false, 'lo demás no se toca')
+  writeFileSync(join(wt.path, 'a.txt'), lines('hola', 'mundo', ''))
+  writeFileSync(join(wt.path, 'nuevo.ts'), lines('export const x = 1', ''))
 
   // Fusionar: commit de lo pendiente y squash en main, sin los créditos del agente.
   assert.equal(await commitAll(wt.path, 'Añade saludo'), true)

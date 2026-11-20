@@ -178,6 +178,17 @@ export async function fileDiff(
   return `--- /dev/null\n+++ b/${path}\n@@ -0,0 +1,${lines.length} @@\n${lines.map((l) => `+${l}`).join('\n')}\n`
 }
 
+// Deja un archivo como estaba en `from`: lo restaura si existía, lo quita si es nuevo.
+// Solo toca esa ruta; nunca el resto del trabajo.
+export async function discardFile(cwd: string, from: string, path: string): Promise<void> {
+  const inHistory =
+    (await git([...PLAIN, 'ls-tree', '--name-only', from, '--', path], cwd)).trim() !== ''
+  if (inHistory) return void (await git([...PLAIN, 'checkout', from, '--', path], cwd))
+  const tracked = (await git([...PLAIN, 'ls-files', '--', path], cwd)).trim() !== ''
+  if (tracked) await git([...PLAIN, 'rm', '-f', '--', path], cwd)
+  else await git([...PLAIN, 'clean', '-f', '--', path], cwd)
+}
+
 // Guarda en un commit todo lo pendiente. Devuelve false si no había nada que guardar.
 export async function commitAll(cwd: string, message: string): Promise<boolean> {
   if (!(await git(['status', '--porcelain'], cwd)).trim()) return false

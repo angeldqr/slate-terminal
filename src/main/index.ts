@@ -217,6 +217,20 @@ function registerIpc(): void {
   ipcMain.handle('git:merge', (_, id: string, msg: string) =>
     changes.mergeBranch(String(id), String(msg))
   )
+  ipcMain.handle('git:discardFile', (_, id: string, path: string) =>
+    changes.discardChangedFile(String(id), String(path))
+  )
+  // Un comentario del panel de cambios, directo al terminal del agente.
+  ipcMain.handle('sessions:comment', (_, id: string, text: string) =>
+    // Una sola línea: un salto dentro del texto se tomaría por Enter y partiría el mensaje.
+    sessions.sendText(
+      String(id),
+      String(text)
+        .replace(/\s*[\r\n]+\s*/g, ' ')
+        .slice(0, 4000),
+      true
+    )
+  )
   ipcMain.handle('git:discard', (_, id: string) => changes.discardBranch(String(id)))
   ipcMain.handle('git:pr', (_, id: string, msg: string) =>
     changes.openPullRequest(String(id), String(msg))
