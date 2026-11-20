@@ -47,9 +47,10 @@ jobs:
 
       # Prueba el binario que se usó para crear el instalador, antes de publicarlo.
       - name: Probar el ejecutable empaquetado
-        run: |
-          npm run look:exe
-          npm run look:scroll -- --exe dist/win-unpacked/slate.exe
+        run: npm run look:exe
+
+      - name: Probar el historial ANSI al alternar Cambios
+        run: npm run look:scroll -- --exe dist/win-unpacked/slate.exe
 
       - name: Guardar capturas del recorrido
         if: failure()

@@ -19,6 +19,49 @@ env[pathKey] = `${bin}${delimiter}${env[pathKey] ?? ''}`
 const quote = (value) => `'${value.replaceAll("'", "''")}'`
 let app
 
+// PNG es un contenedor: se compara el bitmap decodificado. Una banda de color al inicio de cada
+// fila fija su identidad. Para el texto solo cuentan diferencias grandes en más del 1 % del área;
+// con la banda intacta, los bordes antialias no deben hacer fallar la publicación.
+const compare = async (expected, actual) =>
+  app.evaluate(
+    ({ nativeImage }, [left, right]) => {
+      const image = (data) => nativeImage.createFromBuffer(Buffer.from(data, 'base64'))
+      const a = image(left)
+      const b = image(right)
+      const { width, height } = a.getSize()
+      const size = b.getSize()
+      if (!width || !height || width !== size.width || height !== size.height) return null
+      const before = a.toBitmap()
+      const after = b.toBitmap()
+      const difference = (index) =>
+        Math.max(
+          Math.abs(before[index] - after[index]),
+          Math.abs(before[index + 1] - after[index + 1]),
+          Math.abs(before[index + 2] - after[index + 2])
+        )
+      let stripes = 0
+      let pixels = 0
+      for (let y = 0; y < height; y++) {
+        // La captura empieza 2 px dentro de xterm; la banda ocupa las tres primeras celdas.
+        if (difference((y * width + 4) * 4) > 12) stripes++
+      }
+      for (let index = 0; index < before.length; index += 4) {
+        if (difference(index) > 32) pixels++
+      }
+      return { stripes, percent: (100 * pixels) / (width * height) }
+    },
+    [expected.toString('base64'), actual.toString('base64')]
+  )
+
+const sameHistory = async (expected, actual, step) => {
+  const diff = await compare(expected, actual)
+  assert.ok(diff, `${step}: las capturas deben tener el mismo tamaño`)
+  assert.ok(
+    diff.stripes === 0 && diff.percent <= 1,
+    `${step}: ${diff.stripes} líneas de píxeles con otra marca de fila; ${diff.percent.toFixed(2)} % de píxeles distintos`
+  )
+}
+
 try {
   mkdirSync(repo)
   mkdirSync(bin)
@@ -71,6 +114,7 @@ try {
     )
   for (let i = 0; i < 60 && !(await hasOutput()); i++) await win.waitForTimeout(100)
   assert.ok(await hasOutput(), 'la interfaz ANSI arrancó dentro de la sesión de Claude')
+  await win.evaluate(() => document.fonts.ready.then(() => undefined))
 
   const { x, y, width, height } = await terminal.boundingBox()
   // Solo compara la región que queda visible a la izquierda, incluso con el panel ensanchado.
@@ -91,12 +135,12 @@ try {
   const historyA = await shot('01-antes')
   await scroll(-600)
   const historyB = await shot('02-otro-tramo')
-  assert.ok(!historyA.equals(historyB), 'la rueda muestra dos tramos distintos del historial')
-  await scroll(600)
   assert.ok(
-    historyA.equals(await shot('03-vuelta')),
-    'el scroll con Cambios cerrado conserva el dibujo'
+    (await compare(historyA, historyB))?.stripes > 20,
+    'la rueda cambia las marcas de fila, no solo el color de algunos píxeles'
   )
+  await scroll(600)
+  await sameHistory(historyA, await shot('03-vuelta'), 'volver con Cambios cerrado')
 
   await win.keyboard.press('Control+Shift+G')
   const panel = win.getByRole('complementary', { name: 'Cambios' })
@@ -111,14 +155,11 @@ try {
   const closed = await shot('06-cambios-cerrado')
   await scroll(600)
   const returned = await shot('07-historial-final')
+  await sameHistory(historyA, opened, 'abrir Cambios')
   assert.equal(openedWidth, width, 'Cambios no debe renegociar las columnas con el agente')
-  assert.ok(historyA.equals(opened), 'abrir Cambios mantiene los píxeles del historial visible')
-  assert.ok(
-    historyB.equals(scrolled),
-    'hacer scroll con Cambios abierto muestra el mismo historial'
-  )
-  assert.ok(historyB.equals(closed), 'cerrar Cambios conserva el tramo al que se hizo scroll')
-  assert.ok(historyA.equals(returned), 'las filas ANSI siguen intactas al regresar')
+  await sameHistory(historyB, scrolled, 'hacer scroll con Cambios abierto')
+  await sameHistory(historyB, closed, 'cerrar Cambios')
+  await sameHistory(historyA, returned, 'regresar al tramo original')
   await win.keyboard.press('Control+Shift+G')
   const handle = panel.getByRole('separator', { name: 'Ancho del panel de cambios' })
   const originalPanel = (await panel.boundingBox()).width
@@ -126,13 +167,10 @@ try {
   assert.ok((await panel.boundingBox()).width > originalPanel, 'el divisor ensancha solo el panel')
   assert.equal((await terminal.boundingBox()).width, width)
   await win.waitForTimeout(350)
-  assert.ok(
-    historyA.equals(await shot('08-panel-mas-ancho')),
-    'ensanchar el panel conserva la vista'
-  )
+  await sameHistory(historyA, await shot('08-panel-mas-ancho'), 'ensanchar Cambios')
   await win.screenshot({ path: join(captures, '09-panel-y-terminal.png') })
   const renderer = (await terminal.locator('canvas:not([class])').count()) ? 'WebGL' : 'DOM'
-  console.log(`look:scroll: historial ANSI idéntico con renderer ${renderer}`)
+  console.log(`look:scroll: filas y dibujo del historial conservados con renderer ${renderer}`)
 } finally {
   await app?.close()
   rmSync(data, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 })
