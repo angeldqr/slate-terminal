@@ -14,13 +14,20 @@ concurrency:
   group: release
   cancel-in-progress: false
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   windows:
     runs-on: windows-latest
+    env:
+      # Cada publicación sube el número: 0.2.<ejecución>. Solo cambia en la CI, no en el repo.
+      VERSION: 0.2.${{ github.run_number }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
@@ -31,13 +38,23 @@ jobs:
       - run: npm run lint
       - run: npm run check
 
-      # Cada publicación sube el número: 0.2.<ejecución>. Solo cambia en la CI, no en el repo.
-      - name: Número de versión
-        run: npm version "0.2.${{ github.run_number }}" --no-git-tag-version
+      - run: npm version "$VERSION" --no-git-tag-version
 
       - run: npm run build
 
-      - name: Instalador y release
-        run: npx electron-builder --win --publish always
+      # electron-builder solo compila: deja en dist/ el instalador, su blockmap y latest.yml.
+      - run: npx electron-builder --win --publish never
+
+      # La release se crea de una vez con los tres archivos: sin latest.yml, las copias
+      # instaladas no verían la versión.
+      - name: Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v$VERSION" \
+            "dist/slate-$VERSION-setup.exe" \
+            "dist/slate-$VERSION-setup.exe.blockmap" \
+            dist/latest.yml \
+            --target "$GITHUB_SHA" \
+            --title "Slate $VERSION" \
+            --notes "Versión publicada desde develop ($GITHUB_SHA)."
