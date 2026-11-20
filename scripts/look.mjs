@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { connect } from 'node:net'
-import { basename, join, resolve } from 'node:path'
+import { basename, delimiter, join, resolve } from 'node:path'
 import assert from 'node:assert/strict'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
@@ -15,13 +15,19 @@ const data = resolve('.look/data')
 // Con --exe <ruta> se prueba un Slate empaquetado (asar, host desde slate.exe) en vez del compilado.
 const exeAt = process.argv.indexOf('--exe')
 const exe = exeAt > 0 ? resolve(process.argv[exeAt + 1]) : null
+const env = { ...process.env }
+delete env.ELECTRON_RUN_AS_NODE
+// Los hooks y el MCP son reales; el comando es una fixture local que no abre un agente ni usa red.
+const bin = join(data, 'bin')
+const pathKey = Object.keys(env).find((key) => key.toLowerCase() === 'path') ?? 'PATH'
+env[pathKey] = `${bin}${delimiter}${env[pathKey] ?? ''}`
 // Justo tras cerrar, el Slate anterior puede no haber soltado aún el candado de instancia única:
 // el nuevo cede y se va sin ventana. Se reintenta.
 const launchApp = async () => {
   for (let i = 0; ; i++) {
     const a = await (exe
-      ? electron.launch({ executablePath: exe, args: [`--user-data-dir=${data}`] })
-      : electron.launch({ args: ['.', `--user-data-dir=${data}`] }))
+      ? electron.launch({ executablePath: exe, env, args: [`--user-data-dir=${data}`] })
+      : electron.launch({ env, args: ['.', `--user-data-dir=${data}`] }))
     try {
       await a.firstWindow()
       return a
@@ -60,6 +66,8 @@ if (await hostUp()) {
 }
 rmSync(data, { recursive: true, force: true })
 mkdirSync(data, { recursive: true })
+mkdirSync(bin)
+writeFileSync(join(bin, 'claude.cmd'), '@echo off\r\nexit /b 0\r\n')
 const repo = process.cwd()
 writeFileSync(
   join(data, 'projects.json'),
@@ -104,6 +112,21 @@ await win.waitForSelector('.xterm-screen')
 await win.waitForTimeout(1500) // la shell tarda en pintar el prompt
 await shot('shell')
 console.log('· shell abierta')
+
+const projectToggle = win
+  .getByRole('navigation')
+  .getByRole('button', { name: basename(repo), exact: true })
+await projectToggle.focus()
+await win.keyboard.press('Enter')
+await projectToggle.getAttribute('aria-expanded').then((value) => assert.equal(value, 'false'))
+assert.equal(
+  await win.locator('nav [data-status]').count(),
+  0,
+  'la carpeta plegada desmonta sus filas'
+)
+assert.equal(await projectToggle.evaluate((el) => el === document.activeElement), true)
+await win.keyboard.press('Space')
+await win.locator('nav [data-status]').waitFor()
 
 // Paneles: dividir a la derecha desde el menú y abajo desde la cabecera del panel nuevo.
 const visibleTerminals = () => win.locator('.xterm-screen:visible').count()
@@ -321,7 +344,7 @@ await row
 console.log('· el ámbar gana al azul de sin leer')
 
 // Orquestación: el MCP que Slate le da a Claude Code, usado con el cliente oficial del SDK.
-// Claude sigue quieto en su pregunta de confianza: nada de esto gasta tokens.
+// La sesión usa el comando de prueba local; no hace falta una cuenta ni tener instalado el agente.
 const mcpConfig = JSON.parse(readFileSync(join(data, 'hooks', `${claude.id}.mcp.json`), 'utf8'))
 const mcpUrl = mcpConfig.mcpServers.slate.url
 const mcpAs = async (id) => {
@@ -598,6 +621,16 @@ await shot('ajustes-actualizaciones')
 console.log('· ajustes: terminal, cambios y actualizaciones')
 
 await win.getByRole('button', { name: 'Apariencia', exact: true }).click()
+const reduceMotion = win.getByRole('switch', { name: 'Reducir movimiento' })
+await reduceMotion.click()
+await win.waitForFunction(() => document.documentElement.hasAttribute('data-reduce-motion'))
+await win.keyboard.press('Escape')
+await win.waitForFunction(() => !document.querySelector('[data-blendy-to]'))
+await win.keyboard.press('Control+,')
+await reduceMotion.waitFor()
+assert.equal(await reduceMotion.getAttribute('aria-checked'), 'true')
+await reduceMotion.click()
+await win.waitForFunction(() => !document.documentElement.hasAttribute('data-reduce-motion'))
 await win.getByRole('switch', { name: 'Barra superior fija' }).click()
 await win.keyboard.press('Escape')
 await win.waitForFunction(() => !document.querySelector('[data-blendy-to]'))
@@ -803,10 +836,14 @@ const bufferedMarker = () =>
   )
 const validCanvas = () =>
   first.evaluate(() =>
-    [...document.querySelectorAll('.xterm-screen canvas')].some((canvas) => {
-      const screen = canvas.closest('.xterm-screen')
-      return !!screen?.getClientRects().length && canvas.width > 0 && canvas.height > 0
-    })
+    [...document.querySelectorAll('.xterm-screen')]
+      .filter((screen) => screen.getClientRects().length)
+      .every((screen) => {
+        const canvases = [...screen.querySelectorAll('canvas:not([class])')]
+        return canvases.length
+          ? canvases.every((canvas) => canvas.width > 0 && canvas.height > 0)
+          : !!screen.querySelector('.xterm-rows')?.getClientRects().length
+      })
   )
 for (let i = 0; i < 40 && !(await bufferedMarker()); i++) await first.waitForTimeout(100)
 assert.equal(await bufferedMarker(), true, 'la última salida llegó al búfer antes de redimensionar')
@@ -826,6 +863,8 @@ for (let i = 0; i < 3; i++) {
   assert.ok((await terminalWidth()) > narrowWidth, 'al cerrar, el terminal recupera el ancho')
   assert.equal(await bufferedMarker(), true, 'la salida se conserva al cerrar Cambios')
   assert.equal(await validCanvas(), true, 'el canvas conserva un tamaño válido al cerrar')
+  await first.mouse.move(370, 200)
+  await first.mouse.wheel(0, -160)
   await first.keyboard.press('Control+Shift+G')
   await first.waitForTimeout(350)
   assert.equal(await panel.evaluate((el) => el.getBoundingClientRect().width), 480)
@@ -834,10 +873,15 @@ for (let i = 0; i < 3; i++) {
   assert.equal(await validCanvas(), true, 'el canvas conserva un tamaño válido al abrir')
 }
 await shot2('cambios-refit')
-console.log('· Cambios se abre y cierra sin corromper el lienzo del terminal')
+console.log('· Cambios se abre y cierra: el terminal conserva sus dimensiones y su salida')
 
 // Alcances y vista de árbol del panel.
-await panel.getByRole('tab', { name: 'Sin guardar' }).click()
+await panel.getByRole('tab', { name: 'Toda la rama' }).focus()
+await first.keyboard.press('ArrowRight')
+assert.equal(
+  await panel.getByRole('tab', { name: 'Sin guardar' }).getAttribute('aria-selected'),
+  'true'
+)
 await panel.getByText('hola desde la rama').waitFor({ timeout: 8000 })
 await panel.getByRole('button', { name: 'Ver como árbol' }).click()
 await panel.getByRole('button', { name: /hola.txt/ }).waitFor({ timeout: 5000 })
@@ -969,6 +1013,10 @@ await shot2('tareas-varias')
 await first.keyboard.press('Enter')
 const board = first.getByLabel('Tablero de sesiones')
 await board.waitFor({ timeout: 8000 })
+await board.getByRole('radio', { name: /^Todas/ }).press('ArrowRight')
+await board.getByRole('radio', { name: /^Trabajando/, checked: true }).waitFor()
+await board.getByRole('radio', { name: /^Trabajando/ }).press('ArrowLeft')
+await board.getByRole('radio', { name: /^Todas/, checked: true }).waitFor()
 for (const b of ['revisar-estilos', 'documentar-atajos']) {
   await board.getByText(b, { exact: true }).waitFor({ timeout: 10000 })
 }
@@ -984,9 +1032,15 @@ await board.getByText('hola-tablero').first().waitFor({ timeout: 8000 })
 await first.waitForTimeout(600)
 await shot2('tablero')
 // Filtrar: ninguna shell está trabajando.
-await board.getByRole('radio', { name: /^Trabajando/ }).click()
+await board
+  .locator('label')
+  .filter({ has: first.getByRole('radio', { name: /^Trabajando/ }) })
+  .click()
 await board.getByText('Ninguna sesión en este estado').waitFor()
-await board.getByRole('radio', { name: /^Todas/ }).click()
+await board
+  .locator('label')
+  .filter({ has: first.getByRole('radio', { name: /^Todas/ }) })
+  .click()
 // Elegir una tarjeta la abre y cierra el tablero.
 await board.getByRole('button', { name: /Documentar atajos/ }).click()
 await board.waitFor({ state: 'detached' })

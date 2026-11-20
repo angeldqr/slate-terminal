@@ -1,6 +1,7 @@
 // Panel de cambios. Basado en el DiffPanel de T3 Code (MIT); ver THIRD_PARTY_NOTICES.md.
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { AnimatePresence, MotionConfig, motion, useReducedMotion } from 'motion/react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { AnimatePresence, motion } from 'motion/react'
+import { useReduceMotion } from '@renderer/motion'
 import {
   ArrowClockwiseIcon,
   ArrowLineUpIcon,
@@ -182,7 +183,7 @@ function FileRow({
   tree: boolean // en el árbol solo se muestra el nombre: la carpeta ya está arriba
 }): React.JSX.Element {
   // Con prefers-reduced-motion la altura no se anima: aparece en el acto.
-  const reduce = useReducedMotion()
+  const reduce = useReduceMotion()
   const rowRef = useRef<HTMLDivElement>(null)
   const near = useNear(rowRef, open)
   const slash = file.path.lastIndexOf('/')
@@ -599,8 +600,7 @@ export function ChangesPanel(): React.JSX.Element {
   const id = useStore((s) => s.activeId)
   const savedWidth = useStore((s) => s.prefs.changesWidth)
   const panelMs = useStore((s) => s.prefs.panelMs)
-  const reduce = useReducedMotion()
-  const [dragging, setDragging] = useState(false)
+  const reduce = useReduceMotion()
   const [present, setPresent] = useState(open)
   const [dragWidth, setDragWidth] = useState<number | null>(null)
   const width = dragWidth ?? savedWidth
@@ -619,11 +619,7 @@ export function ChangesPanel(): React.JSX.Element {
       aria-label="Cambios"
       inert={!open}
       style={{ width: occupiesSpace ? width : 0 }}
-      className={cn(
-        'relative shrink-0 overflow-hidden',
-        occupiesSpace && 'border-l border-border',
-        dragging && 'select-none'
-      )}
+      className={cn('relative shrink-0 overflow-hidden', occupiesSpace && 'border-l border-border')}
     >
       {open && (
         <ResizeHandle
@@ -633,27 +629,24 @@ export function ChangesPanel(): React.JSX.Element {
             setDragWidth(null)
             if (next !== savedWidth) setPrefs({ changesWidth: next })
           }}
-          onDragging={setDragging}
         />
       )}
-      <MotionConfig reducedMotion="user">
-        <AnimatePresence initial={false} onExitComplete={() => !open && setPresent(false)}>
-          {open && (
-            <motion.div
-              initial={{ opacity: 0, x: '5%' }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: '5%' }}
-              transition={{ duration: reduce ? 0 : panelMs / 1000, ease: [0.32, 0.72, 0, 1] }}
-              className="h-full w-full will-change-transform"
-            >
-              {/* Por sesión: al cambiar de sesión todo vuelve a empezar, plegado. */}
-              <DiffPool>
-                <PanelBody key={id ?? 'ninguna'} id={id} open={open} width={width} />
-              </DiffPool>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </MotionConfig>
+      <AnimatePresence initial={false} onExitComplete={() => !open && setPresent(false)}>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, x: '5%' }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: '5%' }}
+            transition={{ duration: reduce ? 0 : panelMs / 1000, ease: [0.32, 0.72, 0, 1] }}
+            className="h-full w-full will-change-transform"
+          >
+            {/* Por sesión: al cambiar de sesión todo vuelve a empezar, plegado. */}
+            <DiffPool>
+              <PanelBody key={id ?? 'ninguna'} id={id} open={open} width={width} />
+            </DiffPool>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </aside>
   )
 }
@@ -662,27 +655,25 @@ export function ChangesPanel(): React.JSX.Element {
 function ResizeHandle({
   width,
   onResize,
-  onCommit,
-  onDragging
+  onCommit
 }: {
   width: number
-  onResize: (width: number) => void
+  onResize: (width: number | null) => void
   onCommit: (width: number) => void
-  onDragging: (on: boolean) => void
 }): React.JSX.Element {
   const { min, max } = LIMITS.changesWidth
   const clamp = (w: number): number => Math.round(Math.min(max, Math.max(min, w)))
   const drag = useRef<{ id: number; startX: number; startWidth: number; width: number } | null>(
     null
   )
+  useEffect(() => () => onResize(null), [onResize])
 
   const finish = (commit: boolean): void => {
     const current = drag.current
     if (!current) return
     drag.current = null
-    onDragging(false)
     if (commit) onCommit(current.width)
-    else onResize(current.startWidth)
+    else onResize(null)
   }
 
   return (
@@ -699,10 +690,9 @@ function ResizeHandle({
         if (step) setPrefs({ changesWidth: clamp(width + step) })
       }}
       onPointerDown={(e) => {
-        if (e.button !== 0) return
+        if (e.button !== 0 || drag.current) return
         e.currentTarget.setPointerCapture(e.pointerId)
         drag.current = { id: e.pointerId, startX: e.clientX, startWidth: width, width }
-        onDragging(true)
       }}
       onPointerMove={(e) => {
         const current = drag.current
@@ -716,10 +706,10 @@ function ResizeHandle({
       onPointerCancel={(e) => {
         if (drag.current?.id === e.pointerId) finish(false)
       }}
-      onLostPointerCapture={() => {
-        finish(false)
+      onLostPointerCapture={(e) => {
+        if (drag.current?.id === e.pointerId) finish(false)
       }}
-      className="group absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize outline-none"
+      className="group absolute inset-y-0 left-0 z-10 w-1.5 touch-none cursor-col-resize outline-none"
     >
       <span className="absolute inset-y-0 left-0 w-px transition-colors duration-120 group-hover:bg-muted-foreground/50 group-focus-visible:bg-foreground group-active:bg-foreground" />
     </div>
@@ -754,6 +744,7 @@ function PanelBody({
   const [tick, setTick] = useState(0)
   const asked = useRef(0)
   const seeded = useRef<DiffScope | null>(null)
+  const scopeId = useId()
 
   // Pide los cambios; el estado se escribe cuando llega la respuesta, y solo si es la última
   // pedida (un sondeo lento no pisa a uno más nuevo).
@@ -825,7 +816,9 @@ function PanelBody({
     ? treeRows(files, folded)
     : files.map((file) => ({ kind: 'file', file, name: file.path, depth: 0 }))
   // Sin rama propia, "toda la rama" es lo mismo que "sin guardar".
-  const scopes = SCOPES.filter((s) => s.id !== 'base' || changes?.isolated !== false)
+  const isolated = branch?.isolated ?? changes?.isolated
+  const scopes = SCOPES.filter((s) => s.id !== 'base' || isolated !== false)
+  const visibleScope = scope === 'base' && isolated === false ? 'uncommitted' : scope
 
   return (
     <div className="flex h-full flex-col bg-sidebar/40" style={{ width }}>
@@ -884,16 +877,41 @@ function PanelBody({
         aria-label="Qué comparar"
         className="flex shrink-0 gap-1 border-b border-border px-2 py-1.5"
       >
-        {scopes.map((s) => (
+        {scopes.map((s, index) => (
           <button
             key={s.id}
             role="tab"
-            aria-selected={scope === s.id}
+            id={`${scopeId}-${s.id}`}
+            aria-controls={`${scopeId}-diff`}
+            aria-selected={visibleScope === s.id}
+            tabIndex={visibleScope === s.id ? 0 : -1}
             title={s.title}
             onClick={() => pick(s.id)}
+            onKeyDown={(e) => {
+              const last = scopes.length - 1
+              const next =
+                e.key === 'ArrowRight'
+                  ? index === last
+                    ? 0
+                    : index + 1
+                  : e.key === 'ArrowLeft'
+                    ? index === 0
+                      ? last
+                      : index - 1
+                    : e.key === 'Home'
+                      ? 0
+                      : e.key === 'End'
+                        ? last
+                        : -1
+              if (next < 0) return
+              e.preventDefault()
+              const target = scopes[next].id
+              document.getElementById(`${scopeId}-${target}`)?.focus()
+              pick(target)
+            }}
             className={cn(
-              'h-6 rounded-sm px-2 text-[12px] transition-colors duration-120',
-              scope === s.id
+              'h-6 rounded-sm px-2 text-[12px] transition-colors duration-120 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring',
+              visibleScope === s.id
                 ? 'bg-accent text-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             )}
@@ -903,7 +921,12 @@ function PanelBody({
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div
+        role="tabpanel"
+        id={`${scopeId}-diff`}
+        aria-labelledby={`${scopeId}-${visibleScope}`}
+        className="min-h-0 flex-1 overflow-y-auto"
+      >
         {!id ? (
           <Empty title="Sin sesión" text="Abre una sesión para ver lo que cambia." />
         ) : changes === null ? (

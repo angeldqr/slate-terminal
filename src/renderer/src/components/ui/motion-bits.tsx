@@ -37,28 +37,6 @@ export function AnimatedHeight({
   )
 }
 
-// Abre y cierra su contenido con la duración de los paneles. El contenido sigue montado (no se
-// pierde su estado ni vuelve a animar su entrada).
-export function Collapse({
-  open,
-  children
-}: {
-  open: boolean
-  children: React.ReactNode
-}): React.JSX.Element {
-  return (
-    <div
-      inert={!open}
-      className={cn(
-        'grid transition-[grid-template-rows] duration-(--panel-ms) ease-drawer',
-        open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
-      )}
-    >
-      <div className="min-h-0 overflow-hidden">{children}</div>
-    </div>
-  )
-}
-
 // Pone todas las animaciones del elemento en la misma fase (startTime = 0 del reloj del
 // documento): dos puntos que laten a la vez parecen uno solo en vez de dos desfasados.
 export function useSyncedAnimation<T extends HTMLElement>(
@@ -83,18 +61,4 @@ export function PulseDot({ className }: { className?: string }): React.JSX.Eleme
       className={cn('size-1.5 animate-breathe rounded-full', className)}
     />
   )
-}
-
-// true mientras el elemento está en pantalla; fuera, sus bucles se pausan (data-offscreen).
-export function useOnscreen<T extends HTMLElement>(): [React.RefObject<T | null>, boolean] {
-  const ref = useRef<T>(null)
-  const [on, setOn] = useState(true)
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const io = new IntersectionObserver(([entry]) => setOn(entry.isIntersecting))
-    io.observe(el)
-    return () => io.disconnect()
-  }, [])
-  return [ref, on]
 }

@@ -156,7 +156,18 @@ export const SHORTCUTS: Shortcut[] = [
     win: 'Ctrl+Shift+O',
     mac: 'Cmd+Shift+O',
     icon: SquaresFourIcon,
-    run: toggleBoard
+    run: () => {
+      const wasOpen = getState().board
+      toggleBoard()
+      if (!wasOpen) {
+        requestAnimationFrame(() =>
+          document.querySelector<HTMLElement>('[data-board]:not([inert])')?.focus()
+        )
+      } else if (document.activeElement?.closest('[data-board]')) {
+        const id = active()
+        if (id) terminals.get(id)?.focus()
+      }
+    }
   },
   {
     id: 'sidebar',

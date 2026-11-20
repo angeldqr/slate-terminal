@@ -74,9 +74,12 @@ npm run check        # pruebas de la lógica (estados, disposición, atajos, git
 npm run look         # recorrido completo de la app con Playwright; capturas en .look/
 npm run build:win    # instalador de Windows en dist/
 npm run look:exe     # el mismo recorrido sobre dist/win-unpacked (tras npm run build:unpack)
+npm run perf         # mide la fluidez con hasta 20 shells (Windows, después de npm run build)
 ```
 
-Las pruebas nunca lanzan agentes con una tarea: usan shells e imitan sus hooks.
+Las pruebas usan shells y simulan los hooks de Claude Code con un comando local. El flujo de
+publicación prueba el `.exe` antes de crear la versión. Consulta la [guía de rendimiento](docs/rendimiento.md)
+para repetir la medición e interpretar los resultados.
 
 Si el host de sesiones falla al arrancar, su error queda en `host.log`, dentro de la carpeta de
 datos (Ajustes › Avanzado › Abrir carpeta).

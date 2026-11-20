@@ -165,10 +165,16 @@ export function TerminalPane({
     // xterm se ajusta al instante; el proceso se entera cuando el tamaño se calma, así una
     // interfaz como Claude Code no se redibuja en cada frame mientras se arrastra un divisor.
     let settle: ReturnType<typeof setTimeout> | undefined
+    let lastSize = ''
     const tell = (): void => {
       clearTimeout(settle)
       settle = undefined
-      sessions.resize(sessionId, term.cols, term.rows)
+      const size = `${term.cols}x${term.rows}`
+      if (size !== lastSize) {
+        lastSize = size
+        sessions.resize(sessionId, term.cols, term.rows)
+      }
+      term.refresh(0, term.rows - 1)
     }
     let resizeFrame = 0
     // FitAddon modifica varios canvas internos. Agrupar las notificaciones de ResizeObserver evita
@@ -178,14 +184,8 @@ export function TerminalPane({
       if (!host.current?.offsetWidth) return // oculta: xterm no puede medir
       fit.fit()
       clearTimeout(settle)
-      if (final) {
-        tell()
-        // WebGL puede conservar una región anterior tras un cambio brusco de columnas. El último
-        // repintado cubre todo el viewport cuando un panel termina de entrar o salir.
-        if (term.rows) term.refresh(0, term.rows - 1)
-      } else {
-        settle = setTimeout(tell, 80)
-      }
+      if (final) tell()
+      else settle = setTimeout(tell, 80)
     }
     const resize = (): void => {
       cancelAnimationFrame(resizeFrame)
@@ -196,7 +196,9 @@ export function TerminalPane({
       fitNow(true)
     }
     // Al soltar el divisor el proceso se entera en el acto: lo que se escriba ya cae al ancho nuevo.
-    const release = (): void => refit.current()
+    const release = (): void => {
+      if (resizeFrame || settle) refit.current()
+    }
     addEventListener('pointerup', release)
     addEventListener('pointercancel', release)
     addEventListener('blur', release)

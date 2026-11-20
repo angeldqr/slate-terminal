@@ -45,6 +45,7 @@ export type Prefs = {
   autoUpdate: boolean // buscar versiones nuevas al abrir Slate
   contrast: number // contraste de bordes y texto secundario, en % (100 = el tema tal cual)
   solid: boolean // reducir transparencia: superficies sólidas, sin vidrio
+  reduceMotion: boolean // reducir movimiento aunque el sistema no lo pida
   panelMs: number // duración de las animaciones de los paneles, en ms
   terminalTheme: TerminalColors | null // colores importados de un tema de VS Code
   shortcuts: Record<string, string> // atajos cambiados: id → combinación ('' = sin atajo)
@@ -87,6 +88,7 @@ export const DEFAULT_PREFS: Prefs = {
   autoUpdate: true,
   contrast: 100,
   solid: false,
+  reduceMotion: false,
   panelMs: 200,
   terminalTheme: null,
   shortcuts: {},

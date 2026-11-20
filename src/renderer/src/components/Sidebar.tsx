@@ -1,5 +1,4 @@
-import { useRef, useState } from 'react'
-import { MotionConfig, motion } from 'motion/react'
+import { memo, useEffect, useId, useRef, useState } from 'react'
 import {
   CaretRightIcon,
   GearSixIcon,
@@ -13,7 +12,8 @@ import {
 import { cn } from '@renderer/lib/utils'
 import { useAgo } from '@renderer/lib/useAgo'
 import { resolveStatus } from '@renderer/lib/status'
-import { Collapse, PulseDot, useSyncedAnimation } from '@renderer/components/ui/motion-bits'
+import { PulseDot } from '@renderer/components/ui/motion-bits'
+import { useReduceMotion } from '@renderer/motion'
 import {
   closeSession,
   groupByView,
@@ -121,21 +121,12 @@ function Since({ since }: { since: number }): React.JSX.Element {
   )
 }
 
-// El trazo de tiza de la izquierda; sus animaciones laten al compás de las demás.
-function Chalk({ state }: { state: string }): React.JSX.Element {
-  const ref = useSyncedAnimation<HTMLSpanElement>(state)
-  return <span ref={ref} className="chalk" />
-}
-
-// `index`: su posición en el grupo, para que las filas que llegan juntas entren escalonadas.
-function SessionRow({
+const SessionRow = memo(function SessionRow({
   session,
-  active,
-  index
+  active
 }: {
   session: Session
   active: boolean
-  index: number
 }): React.JSX.Element {
   // Desde el menú, el campo espera a que el menú termine de cerrarse para tomar el foco:
   // si lo tomara antes, el cierre se lo quitaría y ese blur guardaría el nombre al instante.
@@ -161,26 +152,30 @@ function SessionRow({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <motion.div
-          layout="position"
-          transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
+        <div
+          role={editing ? undefined : 'button'}
+          tabIndex={editing ? undefined : 0}
           data-status={session.status}
           data-unread={session.unread}
           data-state={shownState}
           aria-current={active ? 'true' : undefined}
           onClick={() => selectSession(session.id)}
+          onKeyDown={(e) => {
+            if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return
+            e.preventDefault()
+            selectSession(session.id)
+          }}
           onDoubleClick={() => setEditing('direct')}
           title={parentTitle && `Lanzada por ${parentTitle}`}
-          style={{ animationDelay: `${index * 50}ms` }}
           className={cn(
             rowClass,
-            'pl-7 animate-in duration-200 ease-out-quint fill-mode-backwards fade-in-0 slide-in-from-left-1',
+            'pl-7 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring',
             session.worktree && 'h-auto min-h-7 py-1',
             active ? 'bg-accent hover:bg-accent' : 'opacity-75 hover:opacity-100',
             shownState === 'exited' && 'text-muted-foreground'
           )}
         >
-          <Chalk state={shownState} />
+          <span aria-hidden className="chalk" />
           <SessionIcon kind={session.kind} />
           {parentTitle && (
             <ArrowBendDownRightIcon
@@ -224,9 +219,8 @@ function SessionRow({
               )}
             </span>
           )}
-          {!editing && shownState === 'working' && <PulseDot className="ml-auto bg-foreground" />}
           {!editing && <Since since={session.since} />}
-        </motion.div>
+        </div>
       </ContextMenuTrigger>
       <ContextMenuContent
         className="w-52"
@@ -267,7 +261,7 @@ function SessionRow({
       </ContextMenuContent>
     </ContextMenu>
   )
-}
+})
 
 // Las sesiones que comparten vista van juntas dentro de un recuadro, en el orden en que aparecen.
 function SessionList({ sessions }: { sessions: Session[] }): React.JSX.Element {
@@ -277,8 +271,8 @@ function SessionList({ sessions }: { sessions: Session[] }): React.JSX.Element {
   return (
     <>
       {groups.map((members) => {
-        const rows = members.map((s, i) => (
-          <SessionRow key={s.id} session={s} active={s.id === activeId} index={i} />
+        const rows = members.map((s) => (
+          <SessionRow key={s.id} session={s} active={s.id === activeId} />
         ))
         return members.length > 1 ? (
           <div key={members[0].id} className="space-y-0.5 rounded-md border border-border p-0.5">
@@ -294,6 +288,7 @@ function SessionList({ sessions }: { sessions: Session[] }): React.JSX.Element {
 
 function FolderGroup({ project }: { project: Project }): React.JSX.Element {
   const sessions = useStore((s) => s.sessions.filter((x) => samePath(folderOf(x), project.path)))
+  const sessionsId = useId()
 
   return (
     <section>
@@ -302,32 +297,39 @@ function FolderGroup({ project }: { project: Project }): React.JSX.Element {
           <div
             className={cn(
               rowClass,
-              'group font-medium text-muted-foreground hover:text-foreground'
+              'group gap-0 px-0 font-medium text-muted-foreground hover:text-foreground'
             )}
-            onClick={() => toggleFolder(project.path)}
           >
-            <CaretRightIcon
-              size={14}
-              className={cn(
-                'shrink-0 transition-transform duration-150',
-                project.open && 'rotate-90'
-              )}
-            />
-            {/* Monograma: la inicial del proyecto, para reconocerlo de un vistazo. */}
-            <span
-              aria-hidden
-              className="grid size-4 shrink-0 place-items-center rounded-[4px] bg-accent text-3xs font-semibold text-foreground uppercase"
+            <button
+              type="button"
+              aria-expanded={project.open}
+              aria-controls={sessionsId}
+              className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-sm px-2 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+              onClick={() => toggleFolder(project.path)}
             >
-              {project.name.charAt(0)}
-            </span>
-            <span className="truncate" title={project.path}>
-              {project.name}
-            </span>
+              <CaretRightIcon
+                size={14}
+                className={cn(
+                  'shrink-0 transition-transform duration-150',
+                  project.open && 'rotate-90'
+                )}
+              />
+              {/* Monograma: la inicial del proyecto, para reconocerlo de un vistazo. */}
+              <span
+                aria-hidden
+                className="grid size-4 shrink-0 place-items-center rounded-[4px] bg-accent text-3xs font-semibold text-foreground uppercase"
+              >
+                {project.name.charAt(0)}
+              </span>
+              <span className="truncate" title={project.path}>
+                {project.name}
+              </span>
+            </button>
             <DropdownMenu>
               <DropdownMenuTrigger
                 onClick={(e) => e.stopPropagation()}
                 aria-label={`Nueva sesión en ${project.name}`}
-                className="ml-auto grid size-5 place-items-center rounded-sm opacity-0 transition-opacity duration-120 group-hover:opacity-100 hover:bg-accent focus-visible:opacity-100 data-[state=open]:opacity-100"
+                className="mr-1.5 grid size-5 shrink-0 place-items-center rounded-sm opacity-0 transition-opacity duration-120 group-hover:opacity-100 hover:bg-accent focus-visible:opacity-100 data-[state=open]:opacity-100"
               >
                 <PlusIcon size={14} />
               </DropdownMenuTrigger>
@@ -359,9 +361,9 @@ function FolderGroup({ project }: { project: Project }): React.JSX.Element {
           />
         </ContextMenuContent>
       </ContextMenu>
-      <Collapse open={project.open}>
-        <SessionList sessions={sessions} />
-      </Collapse>
+      <div id={sessionsId} hidden={!project.open}>
+        {project.open && <SessionList sessions={sessions} />}
+      </div>
     </section>
   )
 }
@@ -482,15 +484,16 @@ const menuOpen = (): boolean =>
     '[data-slot="context-menu-content"], [data-slot="dropdown-menu-content"]'
   )
 
-// Acoplada: siempre montada para animar su ancho (200 ms con la curva base), y su contenido
-// conserva los 240 px mientras se cierra para no reacomodarse.
+// Acoplada: el ancho cambia de una vez para que xterm no se reajuste por cada cuadro.
 // Plegada: al llevar el puntero al borde izquierdo sale flotando sobre el terminal, esmerilada;
 // entra en 200 ms y sale en 160 ms (design.md §7).
 export function Sidebar(): React.JSX.Element {
   const open = useStore((s) => s.sidebar)
   const pinnedBar = useStore((s) => s.prefs.pinTopBar)
+  const reduce = useReduceMotion()
   const [peek, setPeek] = useState<'off' | 'in' | 'out'>('off')
   const leaving = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => clearTimeout(leaving.current), [])
 
   const show = (): void => {
     clearTimeout(leaving.current)
@@ -498,22 +501,19 @@ export function Sidebar(): React.JSX.Element {
   }
   const hide = (): void => {
     if (menuOpen()) return
+    if (reduce) return setPeek('off')
     setPeek('out')
     leaving.current = setTimeout(() => setPeek('off'), 160)
   }
 
   return (
-    <MotionConfig reducedMotion="user">
-      <aside
-        inert={!open}
-        className={cn(
-          'shrink-0 overflow-hidden transition-[width] duration-(--panel-ms) ease-drawer',
-          open ? 'w-60' : 'w-0'
+    <>
+      <aside inert={!open} className={cn('shrink-0 overflow-hidden', open ? 'w-60' : 'w-0')}>
+        {open && (
+          <div className="flex h-full w-60 flex-col animate-in duration-(--panel-ms) ease-drawer fade-in-0 slide-in-from-left-2">
+            <SidebarContent morphSource />
+          </div>
         )}
-      >
-        <div className="flex h-full w-60 flex-col">
-          <SidebarContent morphSource />
-        </div>
       </aside>
       {!open && (
         <div
@@ -539,6 +539,6 @@ export function Sidebar(): React.JSX.Element {
           <SidebarContent morphSource={false} />
         </aside>
       )}
-    </MotionConfig>
+    </>
   )
 }

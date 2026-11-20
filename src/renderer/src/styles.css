@@ -273,38 +273,6 @@ body {
   mix-blend-mode: normal;
 }
 
-/* Tarjeta de un agente trabajando (tablero): un trazo de tiza recorre su borde. Con movimiento
-   reducido la animación dura 0 y queda un trazo quieto. */
-@property --beam {
-  syntax: '<angle>';
-  initial-value: 0deg;
-  inherits: false;
-}
-.beam::before {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  padding: 1px;
-  background: conic-gradient(
-    from var(--beam),
-    transparent 0 72%,
-    color-mix(in oklab, var(--foreground) 70%, transparent) 88%,
-    transparent 100%
-  );
-  mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  animation: beam 3.2s linear infinite;
-  pointer-events: none;
-}
-@keyframes beam {
-  to {
-    --beam: 360deg;
-  }
-}
-
 /* Zonas para arrastrar la ventana sin marco. */
 .drag {
   -webkit-app-region: drag;
@@ -324,14 +292,7 @@ body {
   transition: background-color 160ms var(--ease-out-quint);
 }
 [data-state='working'] > .chalk {
-  background: linear-gradient(
-    to bottom,
-    var(--border) 0%,
-    var(--foreground) 50%,
-    var(--border) 100%
-  );
-  background-size: 100% 300%;
-  animation: chalk-shimmer 1.6s steps(16, end) infinite; /* por pasos: cuesta menos pintar */
+  background: var(--foreground);
 }
 [data-state='attention'] > .chalk {
   background: var(--attention);
@@ -344,14 +305,6 @@ body {
   background: var(--unread);
 }
 
-@keyframes chalk-shimmer {
-  from {
-    background-position: 0 100%;
-  }
-  to {
-    background-position: 0 0;
-  }
-}
 @keyframes chalk-pulse {
   0% {
     transform: scaleY(0.4);
@@ -363,13 +316,12 @@ body {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0ms !important;
-    transition-duration: 0ms !important;
-  }
+:root[data-reduce-motion] *,
+:root[data-reduce-motion] *::before,
+:root[data-reduce-motion] *::after {
+  animation-duration: 0ms !important;
+  animation-delay: 0ms !important;
+  transition-duration: 0ms !important;
 }
 
 /* Al saltar a un ajuste desde el buscador, su fila se ilumina un momento. */
@@ -383,13 +335,9 @@ body {
   }
 }
 
-/* Con la ventana oculta o el elemento fuera de pantalla, los bucles se detienen. */
+/* Con la ventana oculta los bucles se detienen. */
 :root[data-hidden] *,
 :root[data-hidden] *::before,
-:root[data-hidden] *::after,
-[data-offscreen],
-[data-offscreen]::before,
-[data-offscreen]::after,
-[data-offscreen] * {
+:root[data-hidden] *::after {
   animation-play-state: paused !important;
 }

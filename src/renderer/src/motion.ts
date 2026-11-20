@@ -1,12 +1,27 @@
+import { useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import { createBlendy, type Blendy } from 'blendy'
+import { getState, useStore } from './store'
 
 // Transiciones "morph" con Blendy: el botón que abre algo se transforma en lo que abre.
 // Origen: `data-blendy-from="id"`; destino: `data-blendy-to="id"`, con un único hijo envoltorio.
 let blendy: Blendy | null = null
 const open = new Set<string>()
 
-export const reducedMotion = (): boolean => matchMedia('(prefers-reduced-motion: reduce)').matches
+const systemMotion = matchMedia('(prefers-reduced-motion: reduce)')
+const subscribeMotion = (notify: () => void): (() => void) => {
+  systemMotion.addEventListener('change', notify)
+  return () => systemMotion.removeEventListener('change', notify)
+}
+const systemReduced = (): boolean => systemMotion.matches
+
+export const reducedMotion = (): boolean => getState().prefs.reduceMotion || systemReduced()
+
+export function useReduceMotion(): boolean {
+  const local = useStore((s) => s.prefs.reduceMotion)
+  const system = useSyncExternalStore(subscribeMotion, systemReduced)
+  return local || system
+}
 
 // Sin botón visible no hay de dónde salir: barra lateral plegada (inerte, recortada a 0 px) o
 // barra superior escondida (opacidad 0). Entonces se abre con un fundido corto.

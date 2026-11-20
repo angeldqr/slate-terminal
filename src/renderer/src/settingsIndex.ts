@@ -21,6 +21,11 @@ export const SETTINGS_INDEX: Entry[] = [
   { section: 'appearance', label: 'Reducir transparencia', words: 'vidrio desenfoque blur sólido' },
   {
     section: 'appearance',
+    label: 'Reducir movimiento',
+    words: 'animaciones fluidez rendimiento efectos'
+  },
+  {
+    section: 'appearance',
     label: 'Velocidad de los paneles',
     words: 'animación duración barra lateral'
   },

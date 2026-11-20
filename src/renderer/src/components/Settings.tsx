@@ -16,7 +16,7 @@ import {
   type Icon
 } from '@phosphor-icons/react'
 import { cn } from '@renderer/lib/utils'
-import { reducedMotion } from '@renderer/motion'
+import { reducedMotion, useReduceMotion } from '@renderer/motion'
 import { closeOverlay } from '@renderer/overlays'
 import {
   DEFAULT_PREFS,
@@ -432,32 +432,37 @@ const outlineButton =
 function PanelPreview({ ms }: { ms: number }): React.JSX.Element {
   const [open, setOpen] = useState(true)
   useEffect(() => {
-    const t = setInterval(() => setOpen((o) => !o), 1600)
+    if (!ms) return
+    const t = setInterval(() => document.visibilityState === 'visible' && setOpen((o) => !o), 1600)
     return () => clearInterval(t)
-  }, [])
+  }, [ms])
   return (
     <span
       aria-hidden
-      className="mt-2 flex h-10 w-48 overflow-hidden rounded-md border border-border"
+      className="mt-2 block h-10 w-48 overflow-hidden rounded-md border border-border bg-background"
     >
       <span
-        className="shrink-0 overflow-hidden bg-sidebar transition-[width] ease-drawer"
-        style={{ width: open ? 56 : 0, transitionDuration: `${ms}ms` }}
+        className="block h-full w-14 border-r border-border bg-sidebar transition-transform ease-drawer"
+        style={{
+          transform: !ms || open ? 'none' : 'translateX(-100%)',
+          transitionDuration: `${ms}ms`
+        }}
       >
         <span className="m-1.5 block h-1.5 w-8 rounded-full bg-foreground/25" />
         <span className="m-1.5 block h-1.5 w-6 rounded-full bg-foreground/10" />
       </span>
-      <span className="flex-1 bg-background" />
     </span>
   )
 }
 
 function Appearance(): React.JSX.Element {
-  const { pinTopBar, uiScale, contrast, solid, panelMs } = useStore((s) => ({
+  const reduce = useReduceMotion()
+  const { pinTopBar, uiScale, contrast, solid, reduceMotion, panelMs } = useStore((s) => ({
     pinTopBar: s.prefs.pinTopBar,
     uiScale: s.prefs.uiScale,
     contrast: s.prefs.contrast,
     solid: s.prefs.solid,
+    reduceMotion: s.prefs.reduceMotion,
     panelMs: s.prefs.panelMs
   }))
   return (
@@ -469,6 +474,17 @@ function Appearance(): React.JSX.Element {
       <h3 className="mt-7 px-1 text-[12px] font-medium text-muted-foreground">Tema claro</h3>
       <PalettePicker dark={false} />
       <Group title="Interfaz">
+        <Row
+          label="Reducir movimiento"
+          description="Abre los paneles al instante y pausa los efectos animados. Slate también respeta el ajuste de Windows."
+          reset={['reduceMotion']}
+        >
+          <Switch
+            aria-label="Reducir movimiento"
+            checked={reduceMotion}
+            onCheckedChange={setPref('reduceMotion')}
+          />
+        </Row>
         <Row
           label="Tamaño de la interfaz"
           description="Textos, botones y paneles. El terminal conserva su propio tamaño de letra."
@@ -522,7 +538,7 @@ function Appearance(): React.JSX.Element {
             <>
               Cuánto tardan en abrirse la barra lateral, los cambios y el tablero. 0 los abre al
               instante.
-              <PanelPreview ms={panelMs} />
+              <PanelPreview ms={reduce ? 0 : panelMs} />
             </>
           }
           reset={['panelMs']}

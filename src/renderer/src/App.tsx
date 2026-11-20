@@ -7,11 +7,11 @@ import { Views } from './components/Views'
 import { Overlays } from './components/Overlays'
 import { ChangesPanel } from './components/ChangesPanel'
 import { Board } from './components/Board'
-import { AnimatePresence } from 'motion/react'
+import { AnimatePresence, MotionConfig } from 'motion/react'
 import { Keys } from './components/Keys'
 import { DottedGlowBackground } from './components/ui/dotted-glow-background'
 import { Empty as EmptyState } from './components/ui/empty'
-import { initMotion, reducedMotion } from './motion'
+import { initMotion, useReduceMotion } from './motion'
 import { openTask } from './overlays'
 import { installShortcuts, shortcutKeys, useShortcutsRev } from './shortcuts'
 import { addFolder, init, needsYou, newSession, useStore } from './store'
@@ -25,13 +25,14 @@ const loading = init().catch((err) => console.error('Slate no pudo cargar sus da
 function Empty(): React.JSX.Element {
   useShortcutsRev()
   const firstProject = useStore((s) => s.projects[0])
+  const reduce = useReduceMotion()
   const primary = firstProject
     ? { label: 'Nueva shell', Icon: TerminalWindowIcon, run: () => newSession(firstProject.path) }
     : { label: 'Añadir carpeta', Icon: FolderSimplePlusIcon, run: addFolder }
 
   return (
     <div className="relative grid h-full place-items-center overflow-hidden">
-      {!reducedMotion() && (
+      {!reduce && (
         <DottedGlowBackground
           className="pointer-events-none [mask-image:radial-gradient(ellipse_55%_50%_at_50%_45%,black,transparent)]"
           gap={16}
@@ -85,6 +86,10 @@ function App(): React.JSX.Element {
   const pinnedBar = useStore((s) => s.prefs.pinTopBar)
   const uiScale = useStore((s) => s.prefs.uiScale)
   const board = useStore((s) => s.board)
+  const reduce = useReduceMotion()
+  useLayoutEffect(() => {
+    document.documentElement.toggleAttribute('data-reduce-motion', reduce)
+  }, [reduce])
 
   // Tamaño de toda la interfaz; el terminal compensa para conservar su propio tamaño de letra.
   useEffect(() => window.slate.app.setZoom(uiScale / 100), [uiScale])
@@ -139,36 +144,33 @@ function App(): React.JSX.Element {
   }, [])
 
   return (
-    <div className="relative h-full">
-      <TitleBar />
-      {/* Arriba, 8 px de marco para la franja de la barra escondida, o la barra entera si está fija. */}
-      <div
-        className={cn(
-          'flex h-full transition-[padding] duration-(--panel-ms) ease-drawer',
-          pinnedBar ? 'pt-9' : 'pt-2'
-        )}
-      >
-        <Sidebar />
-        <main
-          className={cn(
-            'mr-2 mb-2 min-w-0 flex-1 overflow-hidden rounded-lg bg-background shadow-[var(--elevation-card)] transition-[margin] duration-(--panel-ms) ease-drawer',
-            !sidebar && 'ml-2'
-          )}
-        >
-          {/* El panel de cambios comparte la tarjeta: el terminal cede su ancho al abrirlo. */}
-          <div className="flex h-full">
-            <div className="relative min-w-0 flex-1">
-              {hasSessions ? <Views /> : <Empty />}
-              {/* Encima de las vistas, sin desmontarlas: los terminales siguen vivos debajo. */}
-              <AnimatePresence>{board && <Board />}</AnimatePresence>
+    <MotionConfig reducedMotion={reduce ? 'always' : 'never'} skipAnimations={reduce}>
+      <div className="relative h-full">
+        <TitleBar />
+        {/* Arriba, 8 px de marco para la franja de la barra escondida, o la barra entera si está fija. */}
+        <div className={cn('flex h-full', pinnedBar ? 'pt-9' : 'pt-2')}>
+          <Sidebar />
+          <main
+            className={cn(
+              'mr-2 mb-2 min-w-0 flex-1 overflow-hidden rounded-lg bg-background shadow-[var(--elevation-card)]',
+              !sidebar && 'ml-2'
+            )}
+          >
+            {/* El panel de cambios comparte la tarjeta: el terminal cede su ancho al abrirlo. */}
+            <div className="flex h-full">
+              <div className="relative min-w-0 flex-1">
+                {hasSessions ? <Views /> : <Empty />}
+                {/* Encima de las vistas, sin desmontarlas: los terminales siguen vivos debajo. */}
+                <AnimatePresence>{board && <Board />}</AnimatePresence>
+              </div>
+              <ChangesPanel />
             </div>
-            <ChangesPanel />
-          </div>
-        </main>
+          </main>
+        </div>
+        <Overlays />
+        <Toaster />
       </div>
-      <Overlays />
-      <Toaster />
-    </div>
+    </MotionConfig>
   )
 }
 
