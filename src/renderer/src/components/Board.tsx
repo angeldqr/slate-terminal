@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from 'motion/react'
 import { GitBranchIcon, PaperPlaneTiltIcon, XIcon } from '@phosphor-icons/react'
-import { useAgo } from '@renderer/lib/time'
+import { useAgo } from '@renderer/lib/useAgo'
 import { PulseDot, useOnscreen } from '@renderer/components/ui/motion-bits'
 import { cn } from '@renderer/lib/utils'
 import { openTask } from '@renderer/overlays'

@@ -11,7 +11,7 @@ import {
   TerminalWindowIcon
 } from '@phosphor-icons/react'
 import { cn } from '@renderer/lib/utils'
-import { useAgo } from '@renderer/lib/time'
+import { useAgo } from '@renderer/lib/useAgo'
 import { resolveStatus } from '@renderer/lib/status'
 import { Collapse, PulseDot, useSyncedAnimation } from '@renderer/components/ui/motion-bits'
 import {

@@ -1,5 +1,3 @@
-import { useEffect, useState } from 'react'
-
 // Tiempo relativo corto: "ahora", "3 min", "2 h", "1 d".
 export function ago(since: number, now: number): string {
   const s = Math.max(0, (now - since) / 1000)
@@ -19,16 +17,4 @@ export function untilChange(since: number, now: number): number {
   let next = (n + 0.5) * unit // donde el redondeo sube al siguiente número
   if (next <= s) next = (n + 1.5) * unit
   return Math.ceil((Math.min(next, limit) - s) * 1000) + 1
-}
-
-// "hace 3 min" que se actualiza solo, en el instante exacto en que cambia.
-export function useAgo(since: number): string {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    // Con un `since` nuevo (cambió de estado) se parte de la hora de ahora, no de la guardada.
-    const current = Date.now()
-    const timer = setTimeout(() => setNow(Date.now()), untilChange(since, current))
-    return () => clearTimeout(timer)
-  }, [since, now])
-  return ago(since, Math.max(now, since))
 }
