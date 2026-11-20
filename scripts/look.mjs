@@ -496,6 +496,62 @@ await win.getByRole('switch', { name: 'Aceleración por GPU' }).waitFor()
 await win.getByText(/^(Activa|Encendida|Apagada)/).waitFor()
 console.log('· ajustes: avanzado muestra la GPU, el host en marcha y la carpeta de datos')
 
+// Avanzado: la tabla de procesos con su botón Detener y el acceso a los registros.
+await win.getByRole('columnheader', { name: 'Proceso' }).waitFor()
+await win.getByRole('button', { name: 'Detener', exact: true }).first().waitFor({ timeout: 8000 })
+await win
+  .getByRole('cell', { name: /^\d+ MB$/ })
+  .first()
+  .waitFor({ timeout: 15000 }) // datos reales
+await win.getByRole('button', { name: 'Abrir registros' }).waitFor()
+console.log('· avanzado: procesos y registros')
+
+// Buscador de ajustes: salta a la sección de lo que se busca.
+const search = win.getByRole('textbox', { name: 'Buscar ajustes' })
+await search.fill('cursor')
+await win.getByRole('button', { name: /^Forma/ }).click()
+await win.getByRole('radio', { name: 'Bloque' }).waitFor()
+await search.fill('aceleracion')
+await shot('ajustes-buscar')
+await win.getByRole('button', { name: /^Aceleración por GPU/ }).click()
+await win.getByRole('switch', { name: 'Aceleración por GPU' }).waitFor()
+await search.fill('zzzz')
+await win.getByText('Ningún ajuste coincide con tu búsqueda.').waitFor()
+await search.fill('')
+console.log('· ajustes: el buscador salta a la fila')
+
+// Atajos editables: grabar uno nuevo, el aviso de conflicto con reasignar, y restablecer.
+await win.getByRole('button', { name: 'Atajos', exact: true }).click()
+const sidebarKey = win.getByRole('button', {
+  name: 'Cambiar el atajo de mostrar u ocultar la barra lateral'
+})
+await sidebarKey.click()
+await win.keyboard.press('Control+Shift+P') // el de la paleta
+await win.getByText(/Ya lo usa «Paleta de comandos»/).waitFor()
+await win.getByRole('button', { name: 'Cancelar' }).click()
+await sidebarKey.click()
+await win.keyboard.press('Control+Shift+Y')
+await win.getByRole('button', { name: 'Restablecer mostrar u ocultar la barra lateral' }).waitFor()
+await shot('ajustes-atajos')
+await win.getByRole('button', { name: 'Restablecer mostrar u ocultar la barra lateral' }).click()
+console.log('· ajustes: atajos editables con aviso de conflicto')
+
+// Tema de VS Code: se pega, se importa y se puede quitar.
+await win.getByRole('button', { name: 'Terminal', exact: true }).click()
+await win.getByRole('button', { name: 'Importar…' }).click()
+await win
+  .getByRole('textbox', { name: 'Tema de VS Code' })
+  .fill(
+    '{ // prueba\n "colors": { "terminal.background": "#101820", "terminal.ansiRed": "#f00", }, }'
+  )
+await win.getByRole('button', { name: 'Importar', exact: true }).click()
+await win.getByRole('button', { name: 'Quitar' }).waitFor()
+await win.waitForTimeout(300)
+await shot('ajustes-tema-vscode')
+await win.getByRole('button', { name: 'Quitar' }).click()
+await win.getByRole('button', { name: 'Importar…' }).waitFor()
+console.log('· ajustes: importar y quitar un tema de VS Code')
+
 // Un tema gris de cada modo: Pizarra tiñe el terminal y la interfaz; el botón de la fila lo
 // devuelve a su valor.
 await win.getByRole('button', { name: 'Apariencia', exact: true }).click()
@@ -713,13 +769,26 @@ const panel = first.getByRole('complementary', { name: 'Cambios' })
 await panel.getByRole('button', { name: /hola\.txt/ }).waitFor({ timeout: 8000 })
 await first.waitForTimeout(400)
 await shot2('cambios')
-await panel.getByRole('button', { name: /hola\.txt/ }).click()
+// Los primeros archivos llegan desplegados.
 await panel.getByText('hola desde la rama').waitFor({ timeout: 8000 })
+assert.equal(
+  await panel.getByRole('button', { name: /hola\.txt/ }).getAttribute('aria-expanded'),
+  'true'
+)
 await first.waitForTimeout(400)
 await shot2('cambios-diff')
 // La fila de la barra lateral muestra el último conteo.
 await first.locator('nav').getByText('+1', { exact: true }).waitFor({ timeout: 5000 })
 console.log('· panel de cambios: archivo nuevo, diff y conteo en la barra lateral')
+
+// Alcances y vista de árbol del panel.
+await panel.getByRole('tab', { name: 'Sin guardar' }).click()
+await panel.getByText('hola desde la rama').waitFor({ timeout: 8000 })
+await panel.getByRole('button', { name: 'Ver como árbol' }).click()
+await panel.getByRole('button', { name: /hola.txt/ }).waitFor({ timeout: 5000 })
+await panel.getByRole('button', { name: 'Ver como lista' }).click()
+await panel.getByRole('tab', { name: 'Toda la rama' }).click()
+await panel.getByText('hola desde la rama').waitFor({ timeout: 8000 })
 
 // Comentario al agente: llega al terminal de esa sesión. Descartar un archivo toca solo ese archivo.
 assert.equal(
@@ -748,6 +817,38 @@ assert.equal(
 assert.ok(!existsSync(join(third.worktree.path, 'otro.txt')), 'descartar quita el archivo nuevo')
 assert.ok(existsSync(join(third.worktree.path, 'hola.txt')), 'y no toca el resto')
 console.log('· comentario al agente y descartar un archivo')
+
+// Lado a lado y contexto desplegable en el visor; descartar un archivo desde su fila.
+await panel.getByRole('button', { name: 'Opciones del diff' }).click()
+await first.getByRole('menuitemcheckbox', { name: 'Lado a lado' }).click()
+await first.keyboard.press('Escape')
+await panel.locator('[data-diff-type="split"]').first().waitFor({ timeout: 8000 })
+await panel.getByRole('button', { name: 'Opciones del diff' }).click()
+await first.getByRole('menuitemcheckbox', { name: 'Lado a lado' }).click()
+await first.keyboard.press('Escape')
+await panel
+  .locator('[data-diff-type="split"]')
+  .first()
+  .waitFor({ state: 'detached', timeout: 8000 })
+await panel
+  .getByText(/unchanged/i)
+  .first()
+  .waitFor({ timeout: 8000 }) // el diff ofrece desplegar contexto
+await first.evaluate(
+  ({ id }) => window.slate.sessions.write(id, "Set-Content -Path ui.txt -Value 'x'\r"),
+  { id: third.id }
+)
+await panel.getByRole('button', { name: /ui\.txt/ }).waitFor({ timeout: 10000 })
+await panel.getByRole('button', { name: 'Descartar este archivo' }).last().click()
+await panel.getByRole('button', { name: /Se pierde este cambio/ }).click()
+for (let i = 0; i < 40 && existsSync(join(third.worktree.path, 'ui.txt')); i++) {
+  await first.waitForTimeout(150)
+}
+assert.ok(
+  !existsSync(join(third.worktree.path, 'ui.txt')),
+  'descartar desde la fila quita el archivo'
+)
+console.log('· lado a lado, contexto y descartar desde la fila')
 
 // Fusionar: un solo commit en main con el mensaje de la tarea; la rama y su carpeta se van.
 await panel.getByRole('button', { name: 'Fusionar en main' }).click()

@@ -1,7 +1,9 @@
+// Panel de cambios. Basado en el DiffPanel de T3 Code (MIT); ver THIRD_PARTY_NOTICES.md.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, MotionConfig, motion, useReducedMotion } from 'motion/react'
 import {
   ArrowClockwiseIcon,
+  ArrowLineUpIcon,
   ArrowRightIcon,
   ArrowsInLineVerticalIcon,
   ArrowsOutLineVerticalIcon,
@@ -9,6 +11,10 @@ import {
   CaretRightIcon,
   CircleNotchIcon,
   CopyIcon,
+  CodeIcon,
+  FolderOpenIcon,
+  ListIcon,
+  TreeStructureIcon,
   FileIcon,
   FileMinusIcon,
   FilePlusIcon,
@@ -24,7 +30,8 @@ import {
   XIcon
 } from '@phosphor-icons/react'
 import { cn } from '@renderer/lib/utils'
-import { DiffPool, DiffView } from './DiffView'
+import { DiffPool, DiffView } from './diffs/DiffView'
+import { Skeleton } from './ui/skeleton'
 import {
   closeSession,
   flashHint,
@@ -36,7 +43,14 @@ import {
   useStore
 } from '@renderer/store'
 import { LIMITS } from '@renderer/prefs'
-import type { Changes, FileChange } from '../../../shared/types'
+import type { Changes, DiffScope, FileChange } from '../../../shared/types'
+import {
+  progressLabel,
+  resolveQuickActions,
+  treeRows,
+  type QuickId,
+  type Row
+} from '@renderer/changes.logic'
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -45,6 +59,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from './ui/dropdown-menu'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from './ui/dialog'
 
 const { git } = window.slate
 const POLL_MS = 4000 // ponytail: sondeo mientras el panel está abierto; fs.watch si llega a pesar
@@ -57,11 +79,13 @@ const iconButton =
 function Diff({
   sessionId,
   file,
-  tick
+  tick,
+  scope
 }: {
   sessionId: string
   file: FileChange
   tick: number
+  scope: DiffScope
 }): React.JSX.Element {
   const diffIgnoreSpace = useStore((s) => s.prefs.diffIgnoreSpace)
   // null = cargando; '' = sin texto que mostrar. Se conserva el patch anterior mientras llega el nuevo.
@@ -71,11 +95,11 @@ function Diff({
   useEffect(() => {
     let current = true
     git
-      .fileDiff(sessionId, file.path, diffIgnoreSpace)
+      .fileDiff(sessionId, file.path, diffIgnoreSpace, scope)
       .then((p) => current && setPatch(p))
       .catch(() => current && setPatch(''))
     return () => void (current = false)
-  }, [sessionId, file.path, tick, diffIgnoreSpace])
+  }, [sessionId, file.path, tick, diffIgnoreSpace, scope])
 
   if (file.binary) {
     return (
@@ -93,7 +117,7 @@ function Diff({
   }
   return (
     <div className="border-t border-border bg-background/60">
-      <DiffView sessionId={sessionId} path={file.path} patch={patch} />
+      <DiffView sessionId={sessionId} path={file.path} patch={patch} scope={scope} />
     </div>
   )
 }
@@ -122,33 +146,58 @@ const STATUS = {
   M: { Icon: FileIcon, color: 'text-muted-foreground', label: 'Modificado' }
 }
 
+// true en cuanto la fila abierta está a menos de 600 px de la vista; después no vuelve a false.
+// Un panel con muchos archivos desplegados solo pide el diff de los que se van a ver.
+function useNear(ref: React.RefObject<HTMLElement | null>, active: boolean): boolean {
+  const [near, setNear] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!active || near || !el) return
+    const io = new IntersectionObserver(([entry]) => entry.isIntersecting && setNear(true), {
+      rootMargin: '600px 0px'
+    })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [ref, active, near])
+  return near
+}
+
 function FileRow({
   sessionId,
   file,
   open,
   onToggle,
-  tick
+  tick,
+  scope,
+  depth,
+  tree
 }: {
   sessionId: string
   file: FileChange
   open: boolean
   onToggle: () => void
   tick: number
+  scope: DiffScope
+  depth: number
+  tree: boolean // en el árbol solo se muestra el nombre: la carpeta ya está arriba
 }): React.JSX.Element {
   // Con prefers-reduced-motion la altura no se anima: aparece en el acto.
   const reduce = useReducedMotion()
+  const rowRef = useRef<HTMLDivElement>(null)
+  const near = useNear(rowRef, open)
   const slash = file.path.lastIndexOf('/')
-  const dir = slash >= 0 ? file.path.slice(0, slash + 1) : ''
+  const dir = !tree && slash >= 0 ? file.path.slice(0, slash + 1) : ''
   const name = file.path.slice(slash + 1)
   const status = STATUS[file.status]
   return (
-    <div className="border-b border-border/60">
+    <div ref={rowRef} className="border-b border-border/60">
       <div className="group/file sticky top-0 z-[1] flex h-9 items-center bg-sidebar transition-colors duration-120 hover:bg-accent/40">
         <button
           onClick={onToggle}
           aria-expanded={open}
           title={`${status.label}: ${file.path}`}
-          className="flex h-9 min-w-0 flex-1 items-center gap-2 pr-1 pl-3 text-left"
+          style={{ paddingLeft: 12 + depth * 14 }}
+          className="flex h-9 min-w-0 flex-1 items-center gap-2 pr-1 text-left"
         >
           {open ? (
             <CaretDownIcon size={12} className="shrink-0 text-muted-foreground" />
@@ -167,7 +216,7 @@ function FileRow({
           </span>
           <Counts add={file.add} del={file.del} />
         </button>
-        <FileActions sessionId={sessionId} file={file} />
+        <FileActions sessionId={sessionId} file={file} scope={scope} />
       </div>
       <AnimatePresence initial={false}>
         {open && (
@@ -178,7 +227,14 @@ function FileRow({
             transition={{ duration: reduce ? 0 : 0.2, ease: [0.22, 1, 0.36, 1] }}
             className="overflow-hidden"
           >
-            <Diff sessionId={sessionId} file={file} tick={tick} />
+            {near ? (
+              <Diff sessionId={sessionId} file={file} tick={tick} scope={scope} />
+            ) : (
+              <div className="space-y-2 border-t border-border px-4 py-3">
+                <Skeleton className="h-3 w-2/3" />
+                <Skeleton className="h-3 w-1/2" />
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -186,13 +242,39 @@ function FileRow({
   )
 }
 
-// Copiar la ruta y descartar lo de un solo archivo (con segundo clic), a la derecha de la fila.
+// La fila de una carpeta en la vista de árbol: pliega y despliega lo que contiene.
+function DirRow({
+  row,
+  onToggle
+}: {
+  row: Extract<Row<FileChange>, { kind: 'dir' }>
+  onToggle: () => void
+}): React.JSX.Element {
+  return (
+    <button
+      onClick={onToggle}
+      aria-expanded={row.open}
+      style={{ paddingLeft: 12 + row.depth * 14 }}
+      className="flex h-8 w-full items-center gap-2 border-b border-border/60 pr-3 text-left text-muted-foreground transition-colors duration-120 hover:bg-accent/40 hover:text-foreground"
+    >
+      {row.open ? <CaretDownIcon size={12} /> : <CaretRightIcon size={12} />}
+      <span className="truncate" title={row.path}>
+        {row.name}
+      </span>
+    </button>
+  )
+}
+
+// Copiar la ruta, mostrarla en el explorador y descartar lo de un solo archivo (con segundo
+// clic), a la derecha de la fila. Un commit ya hecho no se descarta archivo a archivo.
 function FileActions({
   sessionId,
-  file
+  file,
+  scope
 }: {
   sessionId: string
   file: FileChange
+  scope: DiffScope
 }): React.JSX.Element {
   const [asking, setAsking] = useState(false)
   useEffect(() => {
@@ -201,7 +283,7 @@ function FileActions({
     return () => clearTimeout(t)
   }, [asking])
   return (
-    <span className="flex shrink-0 items-center pr-1.5 opacity-0 transition-opacity duration-120 group-focus-within/file:opacity-100 group-hover/file:opacity-100">
+    <span className="flex shrink-0 items-center pr-1.5 opacity-0 transition-opacity duration-120 group-focus-within/file:opacity-100 group-hover/file:opacity-100 pointer-coarse:opacity-100">
       <button
         aria-label="Copiar la ruta"
         title="Copiar la ruta"
@@ -216,23 +298,41 @@ function FileActions({
         <CopyIcon size={14} />
       </button>
       <button
-        aria-label={asking ? 'Se pierde este cambio. ¿Descartar?' : 'Descartar este archivo'}
-        title={asking ? 'Se pierde este cambio. ¿Descartar?' : 'Descartar este archivo'}
-        onClick={() => {
-          if (!asking) return setAsking(true)
-          setAsking(false)
-          git.discardFile(sessionId, file.path).then(
-            (ok) => flashHint(ok ? 'Archivo descartado' : 'No se pudo descartar'),
-            (err) => flashHint(reason(err))
-          )
-        }}
-        className={cn(
-          iconButton,
-          asking && 'w-auto px-1.5 text-destructive hover:text-destructive'
-        )}
+        aria-label="Mostrar en el explorador"
+        title="Mostrar en el explorador"
+        onClick={() => void git.showFile(sessionId, file.path, scope)}
+        className={iconButton}
       >
-        {asking ? <span className="text-[12px]">¿Descartar?</span> : <TrashIcon size={14} />}
+        <FolderOpenIcon size={14} />
       </button>
+      <button
+        aria-label="Abrir en VS Code"
+        title="Abrir en VS Code"
+        onClick={() => void git.showFile(sessionId, file.path, scope, true)}
+        className={iconButton}
+      >
+        <CodeIcon size={14} />
+      </button>
+      {scope !== 'last' && (
+        <button
+          aria-label={asking ? 'Se pierde este cambio. ¿Descartar?' : 'Descartar este archivo'}
+          title={asking ? 'Se pierde este cambio. ¿Descartar?' : 'Descartar este archivo'}
+          onClick={() => {
+            if (!asking) return setAsking(true)
+            setAsking(false)
+            git.discardFile(sessionId, file.path, scope).then(
+              (ok) => flashHint(ok ? 'Archivo descartado' : 'No se pudo descartar'),
+              (err) => flashHint(reason(err))
+            )
+          }}
+          className={cn(
+            iconButton,
+            asking && 'w-auto px-1.5 text-destructive hover:text-destructive'
+          )}
+        >
+          {asking ? <span className="text-[12px]">¿Descartar?</span> : <TrashIcon size={14} />}
+        </button>
+      )}
     </span>
   )
 }
@@ -257,9 +357,87 @@ function DiscardItem({ onConfirm }: { onConfirm: () => void }): React.JSX.Elemen
   )
 }
 
-type Action = 'merge' | 'pr' | 'commit' | 'discard'
+// Elegir qué archivos entran en el commit o el PR; los demás se quedan sin guardar en la carpeta.
+function CommitDialog({
+  mode,
+  files,
+  onClose,
+  onConfirm
+}: {
+  mode: 'commit' | 'pr' | 'push'
+  files: FileChange[]
+  onClose: () => void
+  onConfirm: (excluded: string[]) => void
+}): React.JSX.Element {
+  const [left, setLeft] = useState<Set<string>>(new Set())
+  const flip = (path: string): void =>
+    setLeft((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(path)) next.add(path)
+      return next
+    })
+  const leftNow = files.filter((f) => left.has(f.path)).map((f) => f.path) // el sondeo pudo quitar alguno
+  const included = files.length - leftNow.length
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            {mode === 'pr' ? 'Crear PR' : mode === 'push' ? 'Subir la rama' : 'Hacer commit'}
+          </DialogTitle>
+          <DialogDescription>
+            Desmarca lo que no quieras incluir: se queda sin guardar en la carpeta de la sesión.
+          </DialogDescription>
+        </DialogHeader>
+        <ul className="max-h-64 overflow-y-auto rounded-md border border-border">
+          {files.map((f) => (
+            <li key={f.path}>
+              <label className="flex h-8 cursor-pointer items-center gap-2 px-3 hover:bg-accent/40">
+                <input
+                  type="checkbox"
+                  checked={!left.has(f.path)}
+                  onChange={() => flip(f.path)}
+                  className="accent-foreground"
+                />
+                <span className="min-w-0 flex-1 truncate" title={f.path}>
+                  {f.path}
+                </span>
+                <Counts add={f.add} del={f.del} />
+              </label>
+            </li>
+          ))}
+        </ul>
+        <DialogFooter>
+          <button
+            onClick={onClose}
+            className="h-8 rounded-md px-3 text-muted-foreground hover:text-foreground"
+          >
+            Cancelar
+          </button>
+          <button
+            disabled={included === 0}
+            onClick={() => onConfirm(leftNow)}
+            className="h-8 rounded-md bg-foreground px-3 font-semibold text-background disabled:opacity-50"
+          >
+            {mode === 'pr' ? 'Subir y abrir PR' : mode === 'push' ? 'Subir' : 'Hacer commit'} (
+            {included})
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
 
-// Lo que se hace con el trabajo de una rama aislada. La acción principal es fusionar en su base.
+const ACTION_ICON = {
+  merge: GitMergeIcon,
+  pr: GitPullRequestIcon,
+  commit: GitCommitIcon,
+  push: ArrowLineUpIcon,
+  discard: TrashIcon
+}
+
+// Lo que se hace con el trabajo de una rama aislada. La acción principal es fusionar en su base;
+// la tabla de qué se puede y por qué no vive en changes.logic.ts.
 function Actions({
   sessionId,
   changes
@@ -271,12 +449,33 @@ function Actions({
   const [message, setMessage] = useState(() =>
     (task?.split('\n')[0] ?? `Cambios de ${changes.branch}`).slice(0, 72)
   )
-  const [busy, setBusy] = useState<Action | null>(null)
+  const [busy, setBusy] = useState<QuickId | null>(null)
+  const [seconds, setSeconds] = useState(0)
+  const [dialog, setDialog] = useState<'commit' | 'pr' | 'push' | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const empty = !changes.files.length
 
-  const run = async (action: Action, work: () => Promise<string | void>): Promise<void> => {
-    setBusy(action)
+  // Los segundos que lleva la acción en curso, dentro del propio botón.
+  useEffect(() => {
+    if (!busy) return
+    const start = Date.now()
+    const timer = setInterval(() => setSeconds(Math.floor((Date.now() - start) / 1000)), 1000)
+    return () => {
+      clearInterval(timer)
+      setSeconds(0)
+    }
+  }, [busy])
+
+  const actions = resolveQuickActions({
+    isolated: true,
+    empty: !changes.files.length,
+    message,
+    busy: !!busy,
+    base: changes.base
+  })
+  const [primary, ...others] = actions
+
+  const run = async (id: QuickId, work: () => Promise<string | void>): Promise<void> => {
+    setBusy(id)
     setError(null)
     try {
       const hint = await work()
@@ -294,7 +493,27 @@ function Actions({
       closeSession(sessionId) // main ya la cerró
       return hint
     })
+  const commit = (excluded: string[]): Promise<void> =>
+    run('commit', async () =>
+      (await git.commit(sessionId, message, excluded))
+        ? 'Commit hecho en la rama'
+        : 'No había nada nuevo que guardar'
+    )
+  const pr = (excluded: string[]): Promise<void> =>
+    run('pr', async () => {
+      await git.pr(sessionId, message, excluded)
+      return 'Rama subida: el PR se abrió en el navegador'
+    })
+  const push = (excluded: string[]): Promise<void> =>
+    run('push', () => git.push(sessionId, message, excluded))
+  const discard = (): Promise<void> =>
+    run('discard', async () => {
+      const hint = await git.discard(sessionId)
+      closeSession(sessionId)
+      return hint
+    })
 
+  const PrimaryIcon = ACTION_ICON.merge
   return (
     <footer className="space-y-2 border-t border-border p-3">
       <textarea
@@ -309,15 +528,16 @@ function Actions({
       <div className="flex">
         <button
           onClick={merge}
-          disabled={!!busy || empty || !message.trim()}
+          disabled={!primary.enabled}
+          title={primary.reason}
           className="flex h-9 flex-1 items-center justify-center gap-2 rounded-l-md bg-foreground font-semibold text-background transition-colors duration-120 hover:bg-foreground/85 disabled:opacity-50"
         >
-          {busy === 'merge' ? (
+          {busy ? (
             <CircleNotchIcon size={14} className="animate-spin" />
           ) : (
-            <GitMergeIcon size={14} weight="regular" />
+            <PrimaryIcon size={14} weight="regular" />
           )}
-          Fusionar en {changes.base}
+          {busy ? progressLabel(busy, seconds) : primary.label}
         </button>
         <DropdownMenu>
           <DropdownMenuTrigger
@@ -325,49 +545,49 @@ function Actions({
             aria-label="Más acciones"
             className="grid h-9 w-9 place-items-center rounded-r-md border-l border-background/20 bg-foreground text-background transition-colors duration-120 hover:bg-foreground/85 disabled:opacity-50"
           >
-            {busy && busy !== 'merge' ? (
-              <CircleNotchIcon size={14} className="animate-spin" />
-            ) : (
-              <CaretDownIcon size={13} weight="bold" />
-            )}
+            <CaretDownIcon size={13} weight="bold" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-52">
-            <DropdownMenuItem
-              disabled={empty}
-              onSelect={() =>
-                run('pr', async () => {
-                  await git.pr(sessionId, message)
-                  return 'Rama subida: el PR se abrió en el navegador'
-                })
-              }
-            >
-              <GitPullRequestIcon /> Crear PR
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={empty}
-              onSelect={() =>
-                run('commit', async () =>
-                  (await git.commit(sessionId, message))
-                    ? 'Commit hecho en la rama'
-                    : 'No había nada nuevo que guardar'
-                )
-              }
-            >
-              <GitCommitIcon /> Solo hacer commit
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DiscardItem
-              onConfirm={() =>
-                run('discard', async () => {
-                  const hint = await git.discard(sessionId)
-                  closeSession(sessionId)
-                  return hint
-                })
-              }
-            />
+          <DropdownMenuContent align="end" className="w-56">
+            {others.map((a) => {
+              const Icon = ACTION_ICON[a.id]
+              return (
+                <div key={a.id}>
+                  {a.id === 'discard' && <DropdownMenuSeparator />}
+                  {a.id === 'discard' ? (
+                    <DiscardItem onConfirm={discard} />
+                  ) : (
+                    <DropdownMenuItem
+                      disabled={!a.enabled}
+                      title={a.reason}
+                      onSelect={() =>
+                        setDialog(a.id === 'pr' ? 'pr' : a.id === 'push' ? 'push' : 'commit')
+                      }
+                    >
+                      <Icon /> {a.label}
+                    </DropdownMenuItem>
+                  )}
+                </div>
+              )
+            })}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      {dialog && (
+        <CommitDialog
+          mode={dialog}
+          files={changes.files}
+          onClose={() => setDialog(null)}
+          onConfirm={(excluded) => {
+            const mode = dialog
+            setDialog(null)
+            void (mode === 'pr'
+              ? pr(excluded)
+              : mode === 'push'
+                ? push(excluded)
+                : commit(excluded))
+          }}
+        />
+      )}
     </footer>
   )
 }
@@ -444,6 +664,12 @@ function ResizeHandle({
   )
 }
 
+const SCOPES: { id: DiffScope; label: string; title: string }[] = [
+  { id: 'base', label: 'Toda la rama', title: 'Todo lo que cambió desde la rama base' },
+  { id: 'uncommitted', label: 'Sin guardar', title: 'Lo que falta por guardar en un commit' },
+  { id: 'last', label: 'Último commit', title: 'Solo lo que entró en el último commit' }
+]
+
 function PanelBody({
   id,
   open,
@@ -454,11 +680,18 @@ function PanelBody({
   width: number
 }): React.JSX.Element {
   const status = useStore((s) => s.sessions.find((x) => x.id === id)?.status)
+  const hideTests = useStore((s) => s.prefs.hideTests)
+  const asTree = useStore((s) => s.prefs.changesView === 'tree')
+  const [scope, setScope] = useState<DiffScope>('base')
   const [changes, setChanges] = useState<Changes | null | undefined>(undefined)
+  // Lo de toda la rama, sea cual sea la pestaña: las acciones (commit, fusionar…) actúan sobre eso.
+  const [branch, setBranch] = useState<Changes | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [folded, setFolded] = useState<Set<string>>(new Set()) // carpetas plegadas del árbol
   const [spinning, setSpinning] = useState(false)
   const [tick, setTick] = useState(0)
   const asked = useRef(0)
+  const seeded = useRef<DiffScope | null>(null)
 
   // Pide los cambios; el estado se escribe cuando llega la respuesta, y solo si es la última
   // pedida (un sondeo lento no pisa a uno más nuevo).
@@ -466,7 +699,7 @@ function PanelBody({
     if (!id) return Promise.resolve()
     const mine = ++asked.current
     return git
-      .changes(id)
+      .changes(id, scope)
       .catch(() => null)
       .then((next) => {
         if (mine !== asked.current) return
@@ -474,9 +707,23 @@ function PanelBody({
         // deja el mismo +1/−1 y los diffs abiertos deben volver a pedirse.
         setChanges((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next))
         setTick((t) => t + 1)
-        if (next) setDiffStats(id, sum(next.files, 'add'), sum(next.files, 'del'))
+        // Los cuatro primeros archivos llegan desplegados; el resto se carga al abrirlos.
+        if (next && seeded.current !== scope) {
+          seeded.current = scope
+          setExpanded(new Set(next.files.slice(0, 4).map((f) => f.path)))
+        }
+        if (scope === 'base') {
+          setBranch((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next))
+          if (next) setDiffStats(id, sum(next.files, 'add'), sum(next.files, 'del'))
+        }
       })
-  }, [id])
+      .then(async () => {
+        if (scope === 'base' || mine !== asked.current) return
+        const whole = await git.changes(id, 'base').catch(() => null)
+        setBranch((prev) => (JSON.stringify(prev) === JSON.stringify(whole) ? prev : whole))
+        if (whole) setDiffStats(id, sum(whole.files, 'add'), sum(whole.files, 'del'))
+      })
+  }, [id, scope])
 
   useEffect(() => {
     if (!open) return
@@ -492,8 +739,14 @@ function PanelBody({
     setSpinning(true)
     load().finally(() => setSpinning(false))
   }
+  const pick = (next: DiffScope): void => {
+    if (next === scope) return
+    asked.current++ // una respuesta tardía de la pestaña anterior ya no se pinta
+    setChanges(undefined)
+    setExpanded(new Set())
+    setScope(next)
+  }
 
-  const hideTests = useStore((s) => s.prefs.hideTests)
   const all = changes?.files ?? []
   const files = all.filter((f) => !hideTests || !TEST_FILE.test(f.path))
   const hidden = all.length - files.length // siguen en commit, fusión y descarte
@@ -506,6 +759,11 @@ function PanelBody({
       if (!next.delete(path)) next.add(path)
       return next
     })
+  const rows: Row<FileChange>[] = asTree
+    ? treeRows(files, folded)
+    : files.map((file) => ({ kind: 'file', file, name: file.path, depth: 0 }))
+  // Sin rama propia, "toda la rama" es lo mismo que "sin guardar".
+  const scopes = SCOPES.filter((s) => s.id !== 'base' || changes?.isolated !== false)
 
   return (
     <div className="flex h-full flex-col bg-sidebar/40" style={{ width }}>
@@ -541,6 +799,14 @@ function PanelBody({
             <ArrowsOutLineVerticalIcon size={15} />
           )}
         </button>
+        <button
+          onClick={() => setPrefs({ changesView: asTree ? 'list' : 'tree' })}
+          aria-label={asTree ? 'Ver como lista' : 'Ver como árbol'}
+          title={asTree ? 'Ver como lista' : 'Ver como árbol'}
+          className={iconButton}
+        >
+          {asTree ? <ListIcon size={15} /> : <TreeStructureIcon size={15} />}
+        </button>
         <DiffOptions />
         <button
           onClick={toggleChanges}
@@ -551,28 +817,72 @@ function PanelBody({
           <XIcon size={15} />
         </button>
       </header>
+      <div
+        role="tablist"
+        aria-label="Qué comparar"
+        className="flex shrink-0 gap-1 border-b border-border px-2 py-1.5"
+      >
+        {scopes.map((s) => (
+          <button
+            key={s.id}
+            role="tab"
+            aria-selected={scope === s.id}
+            title={s.title}
+            onClick={() => pick(s.id)}
+            className={cn(
+              'h-6 rounded-sm px-2 text-[12px] transition-colors duration-120',
+              scope === s.id
+                ? 'bg-accent text-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!id ? (
           <Empty title="Sin sesión" text="Abre una sesión para ver lo que cambia." />
         ) : changes === null ? (
           <Empty title="Sin git" text="Esta carpeta no es un repositorio git con commits." />
-        ) : changes && !files.length ? (
+        ) : changes && !files.length && !hidden ? (
           <Empty
-            title="Sin cambios todavía"
-            text="Cuando la sesión toque archivos aparecerán aquí, con su diff."
+            title={scope === 'last' ? 'Sin commits' : 'Sin cambios todavía'}
+            text={
+              scope === 'last'
+                ? 'El último commit no cambió nada que mostrar.'
+                : 'Cuando la sesión toque archivos aparecerán aquí, con su diff.'
+            }
           />
         ) : (
-          files.map((f) => (
-            <FileRow
-              key={f.path}
-              sessionId={id}
-              file={f}
-              open={expanded.has(f.path)}
-              onToggle={() => toggle(f.path)}
-              tick={tick}
-            />
-          ))
+          rows.map((r) =>
+            r.kind === 'dir' ? (
+              <DirRow
+                key={'d' + r.path}
+                row={r}
+                onToggle={() =>
+                  setFolded((prev) => {
+                    const next = new Set(prev)
+                    if (!next.delete(r.path)) next.add(r.path)
+                    return next
+                  })
+                }
+              />
+            ) : (
+              <FileRow
+                key={r.file.path}
+                sessionId={id}
+                file={r.file}
+                open={expanded.has(r.file.path)}
+                onToggle={() => toggle(r.file.path)}
+                tick={tick}
+                scope={scope}
+                depth={r.depth}
+                tree={asTree}
+              />
+            )
+          )
         )}
         {hidden > 0 && (
           <p className="px-3 py-2 text-[12px] text-muted-foreground">
@@ -581,7 +891,7 @@ function PanelBody({
         )}
       </div>
 
-      {id && changes?.isolated && <Actions sessionId={id} changes={changes} />}
+      {id && branch?.isolated && <Actions sessionId={id} changes={branch} />}
     </div>
   )
 }

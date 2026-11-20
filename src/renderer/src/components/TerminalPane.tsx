@@ -79,9 +79,26 @@ type TermPrefs = Pick<
   | 'scrollback'
   | 'smoothScroll'
   | 'uiScale'
+  | 'terminalTheme'
 >
+// Lo que trae el tema importado de VS Code se pone encima del tema gris de Slate.
+const withImported = (
+  base: NonNullable<ITerminalOptions['theme']>,
+  c: Prefs['terminalTheme']
+): NonNullable<ITerminalOptions['theme']> =>
+  c
+    ? {
+        ...base,
+        ...c.ansi,
+        ...(c.background && { background: c.background, cursorAccent: c.background }),
+        ...(c.foreground && { foreground: c.foreground, cursor: c.foreground }),
+        ...(c.cursor && { cursor: c.cursor }),
+        ...(c.selection && { selectionBackground: c.selection })
+      }
+    : base
+
 const termOptions = (p: TermPrefs, palette: Palette): ITerminalOptions => ({
-  theme: themeOf(palette),
+  theme: withImported(themeOf(palette)!, p.terminalTheme),
   fontFamily: fontStack(p.fontFamily),
   // El tamaño de la interfaz no agranda el terminal: su letra tiene su propio ajuste.
   fontSize: (p.fontSize * 100) / p.uiScale,
@@ -122,7 +139,8 @@ export function TerminalPane({
     cursorBlink: p.cursorBlink,
     scrollback: p.scrollback,
     smoothScroll: p.smoothScroll,
-    uiScale: p.uiScale
+    uiScale: p.uiScale,
+    terminalTheme: p.terminalTheme
   }))
   const palette = usePalette()
   const options = useMemo(() => termOptions(prefs, palette), [prefs, palette])

@@ -240,6 +240,17 @@ export async function listRemote(): Promise<HostSession[]> {
   return (await request<Extract<FromHost, { t: 'list' }>>((rid) => ({ t: 'list', rid }))).sessions
 }
 
+// Los procesos del host: el suyo y la shell de cada sesión viva (para Ajustes › Avanzado).
+export async function hostPids(): Promise<{ host?: number; sessions: Record<string, number> }> {
+  const reply = await request<Extract<FromHost, { t: 'list' }>>((rid) => ({ t: 'list', rid }))
+  return {
+    host: reply.hostPid,
+    sessions: Object.fromEntries(
+      reply.sessions.filter((x) => !x.exited && x.pid).map((x) => [x.id, x.pid!])
+    )
+  }
+}
+
 export const setMeta = (id: string, meta: Meta): void => {
   if (socket) send(socket, { t: 'meta', id, meta })
 }

@@ -104,9 +104,17 @@ function handle(msg: ToHost): void {
       return
     case 'list': {
       const list: HostSession[] = [...sessions.values()].map(
-        ({ id, meta, buffer, exited, cols, rows }) => ({ id, meta, buffer, exited, cols, rows })
+        ({ id, meta, buffer, exited, cols, rows, proc }) => ({
+          id,
+          meta,
+          buffer,
+          exited,
+          cols,
+          rows,
+          pid: proc.pid
+        })
       )
-      tell({ t: 'list', rid: msg.rid, sessions: list })
+      tell({ t: 'list', rid: msg.rid, sessions: list, hostPid: process.pid })
       return
     }
     case 'shutdown':

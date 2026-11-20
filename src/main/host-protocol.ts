@@ -37,12 +37,13 @@ export type HostSession = {
   exited: boolean
   cols: number // su tamaño actual: la pantalla espejo de Slate se reconstruye igual
   rows: number
+  pid?: number // el proceso de la shell (Ajustes › Avanzado muestra lo que gasta)
 }
 
 export type FromHost =
   | { t: 'ready'; protocol: number }
   | { t: 'spawned'; rid: number; id: string; error?: string }
-  | { t: 'list'; rid: number; sessions: HostSession[] }
+  | { t: 'list'; rid: number; sessions: HostSession[]; hostPid?: number }
   | { t: 'data'; id: string; data: string }
   | { t: 'exit'; id: string }
 

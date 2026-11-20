@@ -361,3 +361,14 @@ body {
     transition-duration: 0ms !important;
   }
 }
+
+/* Al saltar a un ajuste desde el buscador, su fila se ilumina un momento. */
+[data-flash] {
+  animation: flash 1.4s var(--ease-out-quint);
+}
+@keyframes flash {
+  0%,
+  40% {
+    background: color-mix(in oklab, var(--foreground) 9%, transparent);
+  }
+}

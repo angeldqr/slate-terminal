@@ -1,7 +1,9 @@
 import { contextBridge, ipcRenderer, webFrame, type IpcRendererEvent } from 'electron'
 import type {
   Agent,
+  ProcessUsage,
   Changes,
+  DiffScope,
   Notice,
   SessionInfo,
   SessionKind,
@@ -63,16 +65,30 @@ const api = {
   },
   git: {
     branch: (cwd: string): Promise<string | null> => ipcRenderer.invoke('git:branch', cwd),
-    changes: (id: string): Promise<Changes | null> => ipcRenderer.invoke('git:changes', id),
-    fileDiff: (id: string, path: string, ignoreSpace = false): Promise<string> =>
-      ipcRenderer.invoke('git:fileDiff', id, path, ignoreSpace),
-    discardFile: (id: string, path: string): Promise<boolean> =>
-      ipcRenderer.invoke('git:discardFile', id, path),
-    commit: (id: string, msg: string): Promise<boolean> =>
-      ipcRenderer.invoke('git:commit', id, msg),
+    changes: (id: string, scope?: DiffScope): Promise<Changes | null> =>
+      ipcRenderer.invoke('git:changes', id, scope),
+    fileDiff: (id: string, path: string, ignoreSpace = false, scope?: DiffScope): Promise<string> =>
+      ipcRenderer.invoke('git:fileDiff', id, path, ignoreSpace, scope),
+    // Las dos versiones del archivo, para desplegar el contexto que el diff esconde.
+    fileContents: (
+      id: string,
+      path: string,
+      scope?: DiffScope
+    ): Promise<{ old: string | null; new: string | null } | null> =>
+      ipcRenderer.invoke('git:fileContents', id, path, scope),
+    // En el explorador, o en VS Code con `editor`.
+    showFile: (id: string, path: string, scope?: DiffScope, editor = false): Promise<boolean> =>
+      ipcRenderer.invoke('git:showFile', id, path, scope, editor),
+    discardFile: (id: string, path: string, scope?: DiffScope): Promise<boolean> =>
+      ipcRenderer.invoke('git:discardFile', id, path, scope),
+    commit: (id: string, msg: string, exclude?: string[]): Promise<boolean> =>
+      ipcRenderer.invoke('git:commit', id, msg, exclude),
     merge: (id: string, msg: string): Promise<string> => ipcRenderer.invoke('git:merge', id, msg),
     discard: (id: string): Promise<string> => ipcRenderer.invoke('git:discard', id),
-    pr: (id: string, msg: string): Promise<string> => ipcRenderer.invoke('git:pr', id, msg)
+    push: (id: string, msg: string, exclude?: string[]): Promise<string> =>
+      ipcRenderer.invoke('git:push', id, msg, exclude),
+    pr: (id: string, msg: string, exclude?: string[]): Promise<string> =>
+      ipcRenderer.invoke('git:pr', id, msg, exclude)
   },
   store: {
     read: <T>(name: StoreName, fallback: T): Promise<T> =>
@@ -89,6 +105,12 @@ const api = {
     badge: (png: string | null, label: string): void => ipcRenderer.send('app:badge', png, label),
     relaunch: (): void => ipcRenderer.send('app:relaunch'),
     openData: (): Promise<string> => ipcRenderer.invoke('app:openData'),
+    openLogs: (): Promise<string> => ipcRenderer.invoke('app:openLogs'),
+    // Memoria y CPU del host y de cada sesión (null si no se pudo leer).
+    processes: (): Promise<{
+      host: ProcessUsage | null
+      sessions: Record<string, ProcessUsage>
+    } | null> => ipcRenderer.invoke('app:processes'),
     shells: (): Promise<{ id: string; name: string }[]> => ipcRenderer.invoke('shells:list'),
     // Tamaño de toda la interfaz (1 = 100 %).
     setZoom: (factor: number): void => webFrame.setZoomFactor(factor)

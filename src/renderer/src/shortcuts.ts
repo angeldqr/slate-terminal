@@ -22,6 +22,7 @@ import {
   currentFolder,
   cycleView,
   getState,
+  useStore,
   newSession,
   nextNeedingYou,
   selectByIndex,
@@ -196,7 +197,7 @@ export const SHORTCUTS: Shortcut[] = [
     mac: 'Cmd+W',
     icon: XIcon,
     danger: true,
-    run: () => closeActive(isMac ? 'Cmd+W' : 'Ctrl+Shift+W')
+    run: () => closeActive(shortcutKeys('close'))
   },
   // Ctrl+1…9: ir a la sesión en esa posición de la barra lateral.
   ...Array.from({ length: 9 }, (_, i) => ({
@@ -209,15 +210,24 @@ export const SHORTCUTS: Shortcut[] = [
   }))
 ]
 
-export const keysOf = (s: Shortcut): string => (isMac ? s.mac : s.win)
+// Los de fábrica y los que el usuario cambió en Ajustes (prefs.shortcuts; '' = sin atajo).
+export const defaultKeys = (s: Shortcut): string => (isMac ? s.mac : s.win)
+export const keysOf = (s: Shortcut): string => getState().prefs.shortcuts[s.id] ?? defaultKeys(s)
 export const shortcutKeys = (id: string): string => keysOf(SHORTCUTS.find((s) => s.id === id)!)
 
-const byCombo = new Map(SHORTCUTS.map((s) => [keysOf(s), s]))
+// Quien muestra un atajo en pantalla llama a esto para volver a dibujarse cuando cambie.
+export const useShortcutsRev = (): unknown => useStore((s) => s.prefs.shortcuts)
+
+// Mientras Ajustes graba un atajo nuevo, los atajos de Slate no deben dispararse.
+let recording = false
+export const recordShortcuts = (on: boolean): void => void (recording = on)
 
 // En fase de captura: el atajo se resuelve antes de que xterm vea la tecla.
 export function installShortcuts(): () => void {
   const onKey = (e: KeyboardEvent): void => {
-    const shortcut = byCombo.get(comboOf(e))
+    if (recording) return
+    const combo = comboOf(e)
+    const shortcut = SHORTCUTS.find((s) => keysOf(s) === combo)
     if (!shortcut) return
     // En un campo de texto (no el de xterm), copiar, pegar y buscar son los del propio campo.
     const target = e.target as HTMLElement | null

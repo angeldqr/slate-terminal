@@ -10,6 +10,7 @@ import {
   compareUrl,
   createWorktree,
   diffFrom,
+  fileContents,
   fileDiff,
   git,
   mergeSquash,
@@ -119,6 +120,36 @@ try {
   assert.equal((await git(['log', '-1', '--format=%B'], root)).trim(), 'Añade saludo')
   // Una rama sin cambios no se fusiona.
   await assert.rejects(mergeSquash(root, wt2.branch, 'main', 'x'), /no tiene cambios/)
+
+  // Alcances y exclusiones: un commit sin d.txt, el último commit como alcance y el contenido de ambos lados.
+  writeFileSync(join(wt2.path, 'c.txt'), lines('c', ''))
+  writeFileSync(join(wt2.path, 'd.txt'), lines('d', ''))
+  assert.equal(await commitAll(wt2.path, 'c', ['d.txt']), true)
+  assert.equal(
+    (await git(['show', '--name-only', '--format=', 'HEAD'], wt2.path)).trim(),
+    'c.txt',
+    'lo excluido no entra en el commit'
+  )
+  assert.deepEqual(
+    (await changes(wt2.path, 'HEAD')).map((f) => f.path),
+    ['d.txt'],
+    'sin guardar: solo lo excluido'
+  )
+  assert.deepEqual(
+    (await changes(wt2.path, 'HEAD~1', 'HEAD')).map((f) => f.path),
+    ['c.txt'],
+    'último commit: solo lo que entró'
+  )
+  assert.match(await fileDiff(wt2.path, 'HEAD~1', 'c.txt', false, 'HEAD'), /^\+c$/m)
+  assert.deepEqual(await fileContents(wt2.path, 'HEAD~1', 'c.txt', 'HEAD'), {
+    old: null,
+    new: lines('c', '')
+  })
+  assert.equal(
+    (await fileContents(wt2.path, 'HEAD', 'd.txt')).new?.replace(/\r/g, ''),
+    lines('d', '')
+  )
+  rmSync(join(wt2.path, 'd.txt'))
 
   // Un repo anidado sin seguimiento no rompe la lista: sale como entrada sin vista previa.
   mkdirSync(join(wt2.path, 'otro'))

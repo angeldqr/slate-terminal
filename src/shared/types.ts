@@ -36,6 +36,9 @@ export type FileChange = {
   binary: boolean
 }
 
+// Con qué se compara el panel: la rama base, lo que falta por guardar o el último commit.
+export type DiffScope = 'base' | 'uncommitted' | 'last'
+
 // Lo que muestra el panel de cambios de una sesión.
 export type Changes = {
   branch: string
@@ -76,3 +79,6 @@ export type UpdateState = {
   progress?: number
   error?: string
 }
+
+// Lo que gasta un proceso y todo lo que cuelga de él: bytes de memoria y segundos de CPU.
+export type ProcessUsage = { pid: number; memory: number; cpu: number; processes: number }

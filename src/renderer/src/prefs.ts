@@ -1,9 +1,11 @@
 // Preferencias del usuario: se guardan en prefs.json y se aplican al momento.
 import type { SessionKind } from '../../shared/types'
+import type { TerminalColors } from './vscodeTheme'
 
 export type Theme = 'auto' | 'light' | 'dark'
 export type CursorStyle = 'bar' | 'block' | 'underline'
 export type DiffStyle = 'unified' | 'split'
+export type ChangesView = 'list' | 'tree'
 export type FontWeight = 'normal' | '500' | '300'
 
 export type Prefs = {
@@ -27,6 +29,7 @@ export type Prefs = {
   shell: string // la shell de las terminales nuevas ('auto' = la mejor que haya)
   codeFontSize: number // texto de los diffs
   diffStyle: DiffStyle // apilado o lado a lado
+  changesView: ChangesView // archivos del panel de cambios: lista o árbol de carpetas
   hideTests: boolean // el panel de cambios oculta los archivos de prueba
   diffWrap: boolean // líneas largas del diff, ajustadas en vez de con scroll
   diffIgnoreSpace: boolean
@@ -43,6 +46,8 @@ export type Prefs = {
   contrast: number // contraste de bordes y texto secundario, en % (100 = el tema tal cual)
   solid: boolean // reducir transparencia: superficies sólidas, sin vidrio
   panelMs: number // duración de las animaciones de los paneles, en ms
+  terminalTheme: TerminalColors | null // colores importados de un tema de VS Code
+  shortcuts: Record<string, string> // atajos cambiados: id → combinación ('' = sin atajo)
   gpu: boolean // aceleración por GPU (vale desde el siguiente arranque)
 }
 
@@ -67,6 +72,7 @@ export const DEFAULT_PREFS: Prefs = {
   shell: 'auto',
   codeFontSize: 13,
   diffStyle: 'unified',
+  changesView: 'list',
   hideTests: false,
   diffWrap: false,
   diffIgnoreSpace: false,
@@ -82,6 +88,8 @@ export const DEFAULT_PREFS: Prefs = {
   contrast: 100,
   solid: false,
   panelMs: 200,
+  terminalTheme: null,
+  shortcuts: {},
   gpu: true
 }
 

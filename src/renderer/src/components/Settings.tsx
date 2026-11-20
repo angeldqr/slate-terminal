@@ -8,6 +8,7 @@ import {
   CloudArrowDownIcon,
   GitDiffIcon,
   KeyboardIcon,
+  MagnifyingGlassIcon,
   PaintBrushBroadIcon,
   TerminalWindowIcon,
   WrenchIcon,
@@ -26,7 +27,16 @@ import {
   type FontWeight,
   type Prefs
 } from '@renderer/prefs'
-import { keysOf, SHORTCUTS } from '@renderer/shortcuts'
+import {
+  defaultKeys,
+  isMac,
+  keysOf,
+  recordShortcuts,
+  SHORTCUTS,
+  type Shortcut
+} from '@renderer/shortcuts'
+import { comboOf } from '@renderer/keys'
+import { assign, conflictOf, validCombo, type Entry } from '@renderer/shortcuts.logic'
 import {
   closeSession,
   flashHint,
@@ -36,16 +46,24 @@ import {
   useStore
 } from '@renderer/store'
 import { applyTheme, setTheme, THEMES } from '@renderer/theme'
+import { ANSI, parseVsCodeTheme, type TerminalColors } from '@renderer/vscodeTheme'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@renderer/components/ui/dialog'
 import { PALETTES, paletteOf, type PaletteTokens } from '../../../shared/palettes'
 import { GlowingEffect } from './ui/glowing-effect'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { Slider } from './ui/slider'
 import { Switch } from './ui/switch'
 import { Keys } from './Keys'
+import { searchSettings, type Entry as Found, type SectionId } from '@renderer/settingsIndex'
 import { version } from '../../../../package.json'
 
-type SectionId =
-  'appearance' | 'terminal' | 'changes' | 'notifications' | 'shortcuts' | 'updates' | 'advanced'
 const SECTIONS: { id: SectionId; label: string; icon: Icon; description: string }[] = [
   {
     id: 'appearance',
@@ -139,7 +157,7 @@ function Row({
 }): React.JSX.Element {
   const changed = useStore((s) => !!reset?.some((k) => s.prefs[k] !== DEFAULT_PREFS[k]))
   return (
-    <div className="flex min-h-14 items-center gap-6 px-4 py-3">
+    <div data-setting={label} className="flex min-h-14 items-center gap-6 px-4 py-3">
       <div className="min-w-0 flex-1">
         <p>{label}</p>
         {description && (
@@ -408,6 +426,31 @@ const setPref =
 const outlineButton =
   'h-8 shrink-0 rounded-sm border border-border px-3 text-[12px] text-muted-foreground transition-colors duration-120 hover:border-muted-foreground/40 hover:text-foreground disabled:opacity-40'
 
+// Vista previa de la velocidad de los paneles: una barra lateral de mentira que entra y sale con
+// la duración y la curva elegidas, para ver el ajuste sin cerrar Ajustes.
+function PanelPreview({ ms }: { ms: number }): React.JSX.Element {
+  const [open, setOpen] = useState(true)
+  useEffect(() => {
+    const t = setInterval(() => setOpen((o) => !o), 1600)
+    return () => clearInterval(t)
+  }, [])
+  return (
+    <span
+      aria-hidden
+      className="mt-2 flex h-10 w-48 overflow-hidden rounded-md border border-border"
+    >
+      <span
+        className="shrink-0 overflow-hidden bg-sidebar transition-[width] ease-drawer"
+        style={{ width: open ? 56 : 0, transitionDuration: `${ms}ms` }}
+      >
+        <span className="m-1.5 block h-1.5 w-8 rounded-full bg-foreground/25" />
+        <span className="m-1.5 block h-1.5 w-6 rounded-full bg-foreground/10" />
+      </span>
+      <span className="flex-1 bg-background" />
+    </span>
+  )
+}
+
 function Appearance(): React.JSX.Element {
   const { pinTopBar, uiScale, contrast, solid, panelMs } = useStore((s) => ({
     pinTopBar: s.prefs.pinTopBar,
@@ -474,7 +517,13 @@ function Appearance(): React.JSX.Element {
         </Row>
         <Row
           label="Velocidad de los paneles"
-          description="Cuánto tardan en abrirse la barra lateral, los cambios y el tablero. 0 los abre al instante."
+          description={
+            <>
+              Cuánto tardan en abrirse la barra lateral, los cambios y el tablero. 0 los abre al
+              instante.
+              <PanelPreview ms={panelMs} />
+            </>
+          }
           reset={['panelMs']}
         >
           <Range
@@ -552,6 +601,105 @@ function ShellSelect({ value }: { value: string }): React.JSX.Element {
         ))}
       </SelectContent>
     </Select>
+  )
+}
+
+// Los colores del tema importado, de un vistazo: fondo, texto y los 16 ANSI.
+function ImportedSwatches({ colors }: { colors: TerminalColors }): React.JSX.Element {
+  return (
+    <div aria-hidden className="flex flex-wrap items-center gap-1.5 px-4 py-3">
+      {[colors.background, colors.foreground].map(
+        (c, i) =>
+          c && (
+            <span
+              key={i}
+              className="size-5 rounded-sm ring-1 ring-border"
+              style={{ background: c }}
+            />
+          )
+      )}
+      <span className="mx-1 h-4 w-px bg-border" />
+      {ANSI.map((name) => (
+        <span
+          key={name}
+          title={name}
+          className={cn(
+            'size-4 rounded-full ring-1 ring-border',
+            !colors.ansi[name] && 'opacity-20'
+          )}
+          style={{ background: colors.ansi[name] ?? 'currentColor' }}
+        />
+      ))}
+    </div>
+  )
+}
+
+// Importar o quitar el tema de VS Code: un cuadro donde pegar el JSON, con su error si no sirve.
+function ImportTheme(): React.JSX.Element {
+  const has = useStore((s) => !!s.prefs.terminalTheme)
+  const [open, setOpen] = useState(false)
+  const [text, setText] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const close = (): void => {
+    setOpen(false)
+    setText('')
+    setError(null)
+  }
+  return (
+    <>
+      {has && (
+        <button onClick={() => setPrefs({ terminalTheme: null })} className={outlineButton}>
+          Quitar
+        </button>
+      )}
+      <button onClick={() => setOpen(true)} className={outlineButton}>
+        {has ? 'Cambiar…' : 'Importar…'}
+      </button>
+      <Dialog open={open} onOpenChange={(o) => !o && close()}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Importar un tema de VS Code</DialogTitle>
+            <DialogDescription>
+              Pega el JSON del tema (o el bloque workbench.colorCustomizations de tu settings.json).
+              Se usan los colores del terminal; si faltan, los del editor.
+            </DialogDescription>
+          </DialogHeader>
+          <textarea
+            autoFocus
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value)
+              setError(null)
+            }}
+            aria-label="Tema de VS Code"
+            rows={10}
+            spellCheck={false}
+            className="block w-full resize-none rounded-md border border-border bg-background/60 p-3 font-mono text-[12px] leading-5 outline-none select-text focus:border-muted-foreground/50"
+          />
+          {error && <p className="text-destructive">{error}</p>}
+          <DialogFooter>
+            <button
+              onClick={close}
+              className="h-8 rounded-md px-3 text-muted-foreground hover:text-foreground"
+            >
+              Cancelar
+            </button>
+            <button
+              disabled={!text.trim()}
+              onClick={() => {
+                const r = parseVsCodeTheme(text)
+                if (!r.ok) return setError(r.error)
+                setPrefs({ terminalTheme: r.colors })
+                close()
+              }}
+              className="h-8 rounded-md bg-foreground px-3 font-semibold text-background disabled:opacity-50"
+            >
+              Importar
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 
@@ -706,6 +854,19 @@ function TerminalSection(): React.JSX.Element {
             onCheckedChange={setPref('copyOnSelect')}
           />
         </Row>
+      </Group>
+      <Group title="Colores">
+        <Row
+          label="Tema de VS Code"
+          description={
+            p.terminalTheme
+              ? 'Los colores del terminal vienen de un tema importado.'
+              : 'Pega un tema de VS Code para usar su fondo, su texto y sus 16 colores.'
+          }
+        >
+          <ImportTheme />
+        </Row>
+        {p.terminalTheme && <ImportedSwatches colors={p.terminalTheme} />}
       </Group>
       <Group title="Shell">
         <Row
@@ -876,17 +1037,120 @@ function Notifications(): React.JSX.Element {
   )
 }
 
+// Un atajo editable: clic y pulsar la combinación nueva. Escape deja el que había, Retroceso lo
+// quita, y si ya lo usa otro se ofrece reasignarlo.
+function ShortcutRow({ shortcut }: { shortcut: Shortcut }): React.JSX.Element {
+  const overrides = useStore((s) => s.prefs.shortcuts)
+  const [listening, setListening] = useState(false)
+  const [clash, setClash] = useState<{ combo: string; other: Shortcut } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const changed = shortcut.id in overrides
+  const entries = (): Entry[] => SHORTCUTS.map((x) => ({ id: x.id, keys: keysOf(x) }))
+  const defaults = Object.fromEntries(SHORTCUTS.map((x) => [x.id, defaultKeys(x)]))
+  const apply = (combo: string, takeOver = false): void => {
+    setPrefs({
+      shortcuts: assign(
+        getState().prefs.shortcuts,
+        entries(),
+        defaults,
+        shortcut.id,
+        combo,
+        takeOver
+      )
+    })
+    setClash(null)
+    setError(null)
+  }
+  const stop = (): void => {
+    setListening(false)
+    recordShortcuts(false)
+  }
+  // Si Ajustes se cierra mientras se graba, los atajos de Slate vuelven a funcionar.
+  useEffect(() => () => recordShortcuts(false), [])
+
+  return (
+    <Row label={shortcut.label}>
+      <div className="flex flex-col items-end gap-1">
+        <div className="flex items-center gap-1">
+          {changed && !listening && (
+            <button
+              aria-label={`Restablecer ${shortcut.label.toLowerCase()}`}
+              title="Volver al atajo de siempre"
+              onClick={() => apply(defaultKeys(shortcut), true)}
+              className="grid size-7 place-items-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <ArrowCounterClockwiseIcon size={14} />
+            </button>
+          )}
+          <button
+            aria-label={`Cambiar el atajo de ${shortcut.label.toLowerCase()}`}
+            onClick={() => {
+              setClash(null)
+              setError(null)
+              setListening(true)
+              recordShortcuts(true)
+            }}
+            onBlur={stop}
+            onKeyDown={(e) => {
+              if (!listening) return
+              e.preventDefault()
+              e.stopPropagation()
+              if (e.key === 'Escape') return stop()
+              if (e.key === 'Backspace') {
+                apply('')
+                return stop()
+              }
+              if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return // aún faltan teclas
+              const combo = comboOf(e.nativeEvent)
+              const valid = validCombo(combo, isMac)
+              if (!valid.ok) return setError(valid.error)
+              const other = conflictOf(entries(), shortcut.id, combo)
+              stop()
+              const owner = SHORTCUTS.find((x) => x.id === other?.id)
+              if (owner) return setClash({ combo, other: owner })
+              apply(combo)
+            }}
+            className={cn(
+              'flex h-8 min-w-24 items-center justify-end rounded-sm border px-2 transition-colors duration-120',
+              listening ? 'border-foreground' : 'border-transparent hover:border-border'
+            )}
+          >
+            {listening ? (
+              <span className="text-[12px] text-muted-foreground">Pulsa las teclas…</span>
+            ) : (
+              <Keys combo={keysOf(shortcut)} />
+            )}
+          </button>
+        </div>
+        {error && <p className="text-[12px] text-destructive">{error}</p>}
+        {clash && (
+          <p className="flex items-center gap-2 text-[12px] text-attention">
+            Ya lo usa «{clash.other.label}».
+            <button
+              onClick={() => apply(clash.combo, true)}
+              className="text-foreground underline underline-offset-2"
+            >
+              Reasignar
+            </button>
+            <button onClick={() => setClash(null)} className="text-muted-foreground">
+              Cancelar
+            </button>
+          </p>
+        )}
+      </div>
+    </Row>
+  )
+}
+
 function Shortcuts(): React.JSX.Element {
   const list = SHORTCUTS.filter((s) => !s.id.startsWith('goto-'))
   return (
     <Group>
       {list.map((s) => (
-        <Row key={s.id} label={s.label}>
-          <Keys combo={keysOf(s)} />
-        </Row>
+        <ShortcutRow key={s.id} shortcut={s} />
       ))}
       <Row label="Ir a la sesión 1 a 9">
-        <Keys combo={keysOf(SHORTCUTS.find((s) => s.id === 'goto-1')!).replace('1', '1…9')} />
+        <Keys combo={defaultKeys(SHORTCUTS.find((s) => s.id === 'goto-1')!).replace('1', '1…9')} />
       </Row>
     </Group>
   )
@@ -1018,6 +1282,114 @@ function Updates(): React.JSX.Element {
 
 type AppInfo = Awaited<ReturnType<typeof window.slate.app.info>>
 
+const mb = (bytes: number): string => `${Math.round(bytes / 1048576)} MB`
+const secs = (s: number): string => (s < 60 ? `${s.toFixed(1)} s` : `${Math.round(s / 60)} min`)
+
+// Memoria y CPU de cada terminal (su shell y todo lo que lanzó) y del host; se refresca solo
+// mientras la sección está a la vista. Detener cierra la sesión (pide un segundo clic si trabaja).
+function ProcessTable(): React.JSX.Element {
+  const sessions = useStore((s) => s.sessions.filter((x) => x.status !== 'exited'))
+  // undefined: leyendo todavía; null: no se pudo leer.
+  const [usage, setUsage] = useState<
+    Awaited<ReturnType<typeof window.slate.app.processes>> | undefined
+  >(undefined)
+  const [asking, setAsking] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    let reading = false // PowerShell tarda: no se empieza otra lectura hasta acabar la anterior
+    const read = (): void => {
+      if (reading || document.visibilityState !== 'visible') return
+      reading = true
+      window.slate.app
+        .processes()
+        .then((u) => live && setUsage(u))
+        .catch(() => live && setUsage(null))
+        .finally(() => (reading = false))
+    }
+    read()
+    const timer = setInterval(read, 5000)
+    return () => {
+      live = false
+      clearInterval(timer)
+    }
+  }, [sessions.length])
+
+  const cell = 'px-4 py-2 text-right tabular-nums text-muted-foreground'
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-left text-[12px]">
+        <thead className="text-muted-foreground">
+          <tr className="border-b border-border">
+            <th className="px-4 py-2 font-medium">Proceso</th>
+            <th className="px-4 py-2 text-right font-medium">PID</th>
+            <th className="px-4 py-2 text-right font-medium">Memoria</th>
+            <th className="px-4 py-2 text-right font-medium">CPU</th>
+            <th className="w-20" />
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">
+          {usage?.host && (
+            <tr>
+              <td className="px-4 py-2">Host de sesiones</td>
+              <td className={cell}>{usage.host.pid}</td>
+              <td className={cell}>{mb(usage.host.memory)}</td>
+              <td className={cell}>{secs(usage.host.cpu)}</td>
+              <td />
+            </tr>
+          )}
+          {sessions.map((s) => {
+            const u = usage?.sessions[s.id]
+            const sure = asking === s.id
+            return (
+              <tr key={s.id}>
+                <td className="max-w-40 truncate px-4 py-2" title={s.title}>
+                  {s.title}
+                </td>
+                <td className={cell}>{u?.pid ?? '—'}</td>
+                <td className={cell}>{u ? mb(u.memory) : '—'}</td>
+                <td className={cell}>{u ? secs(u.cpu) : '—'}</td>
+                <td className="px-2 text-right">
+                  <button
+                    onClick={() => {
+                      if (s.status === 'working' && !sure) return setAsking(s.id)
+                      setAsking(null)
+                      closeSession(s.id)
+                    }}
+                    onBlur={() => setAsking(null)}
+                    className={cn(
+                      'h-6 rounded-sm px-2 transition-colors duration-120 hover:bg-accent',
+                      sure ? 'text-destructive' : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    {sure ? '¿Detener?' : 'Detener'}
+                  </button>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+      {usage && !usage.host && (
+        <p className="px-4 py-3 text-[12px] text-muted-foreground">
+          El host que está en marcha es de una versión anterior y no informa de sus procesos: se
+          renueva al salir sin mantener las sesiones.
+        </p>
+      )}
+      {usage === undefined && (
+        <p className="px-4 py-3 text-[12px] text-muted-foreground">Leyendo procesos…</p>
+      )}
+      {usage === null && (
+        <p className="px-4 py-3 text-[12px] text-muted-foreground">
+          No se pudo leer el uso de los procesos.
+        </p>
+      )}
+      {usage && !sessions.length && (
+        <p className="px-4 py-3 text-[12px] text-muted-foreground">No hay terminales abiertas.</p>
+      )}
+    </div>
+  )
+}
+
 function Advanced(): React.JSX.Element {
   const count = useStore((s) => s.sessions.filter((x) => x.status !== 'exited').length)
   const [info, setInfo] = useState<AppInfo | null>(null)
@@ -1080,6 +1452,9 @@ function Advanced(): React.JSX.Element {
           )}
         </Row>
       </Group>
+      <Group title="Procesos">
+        <ProcessTable />
+      </Group>
       <Group title="Datos">
         <Row
           label="Carpeta de datos"
@@ -1102,6 +1477,21 @@ function Advanced(): React.JSX.Element {
             className={outlineButton}
           >
             Abrir carpeta
+          </button>
+        </Row>
+        <Row
+          label="Registros"
+          description="host.log guarda lo que el host de sesiones no pudo hacer, si le pasó algo."
+        >
+          <button
+            onClick={() =>
+              window.slate.app
+                .openLogs()
+                .then((err) => err && flashHint(`No se pudo abrir: ${err}`))
+            }
+            className={outlineButton}
+          >
+            Abrir registros
           </button>
         </Row>
       </Group>
@@ -1176,6 +1566,38 @@ function ResetButton(): React.JSX.Element {
 }
 
 // Ajustes: navegación a la izquierda y la sección elegida en una columna centrada.
+function SearchResults({
+  found,
+  onOpen
+}: {
+  found: Found[]
+  onOpen: (e: Found) => void
+}): React.JSX.Element {
+  if (!found.length) {
+    return <p className="text-muted-foreground">Ningún ajuste coincide con tu búsqueda.</p>
+  }
+  return (
+    <>
+      <h2 className="text-[20px] font-semibold tracking-tight">Resultados</h2>
+      <ul className="mt-4 divide-y divide-border rounded-lg border border-border">
+        {found.map((e) => (
+          <li key={e.section + e.label}>
+            <button
+              onClick={() => onOpen(e)}
+              className="flex h-11 w-full items-center gap-3 px-4 text-left transition-colors duration-120 hover:bg-accent/40"
+            >
+              <span className="flex-1">{e.label}</span>
+              <span className="text-[12px] text-muted-foreground">
+                {SECTIONS.find((s) => s.id === e.section)?.label}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
+  )
+}
+
 export function Settings(): React.JSX.Element {
   const [section, setSection] = useState(lastSection)
   const root = useRef<HTMLDivElement>(null)
@@ -1194,6 +1616,29 @@ export function Settings(): React.JSX.Element {
     scroller.current?.scrollTo({ top: 0 }) // cada sección empieza por arriba
   }
 
+  // Buscador: filtra todas las secciones; elegir un resultado salta a su sección y alumbra su fila.
+  const [query, setQuery] = useState('')
+  const [target, setTarget] = useState<string | null>(null)
+  const found = searchSettings(query)
+  const open = (e: Found): void => {
+    go(e.section)
+    setQuery('')
+    setTarget(e.label)
+  }
+  useEffect(() => {
+    if (!target) return
+    const frame = requestAnimationFrame(() => {
+      const row = scroller.current?.querySelector<HTMLElement>(
+        `[data-setting="${CSS.escape(target)}"]`
+      )
+      row?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      row?.setAttribute('data-flash', '')
+      setTimeout(() => row?.removeAttribute('data-flash'), 1500)
+      setTarget(null)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [target, section])
+
   return (
     <MotionConfig reducedMotion="user">
       <div
@@ -1209,6 +1654,28 @@ export function Settings(): React.JSX.Element {
           <p className="flex h-9 items-center px-2.5 text-[13px] font-semibold tracking-tight">
             Ajustes
           </p>
+          <div className="relative mt-1 mb-2">
+            <MagnifyingGlassIcon
+              size={14}
+              className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-muted-foreground"
+            />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && found[0]) open(found[0])
+                // Escape borra la búsqueda; con el campo vacío cierra Ajustes como siempre.
+                if (e.key === 'Escape' && query) {
+                  e.stopPropagation()
+                  setQuery('')
+                }
+              }}
+              aria-label="Buscar ajustes"
+              placeholder="Buscar ajustes"
+              spellCheck={false}
+              className="h-8 w-full rounded-sm border border-border bg-background/50 pr-2 pl-8 text-[13px] outline-none select-text placeholder:text-muted-foreground focus:border-muted-foreground/50"
+            />
+          </div>
           <LayoutGroup id="settings-nav">
             <div className="mt-1 space-y-0.5">
               {SECTIONS.map((s) => (
@@ -1261,9 +1728,15 @@ export function Settings(): React.JSX.Element {
             key={section}
             className="mx-auto max-w-[600px] animate-in px-8 pt-10 pb-12 duration-200 ease-out-quint fade-in-0 slide-in-from-bottom-2"
           >
-            <h2 className="text-[20px] font-semibold tracking-tight">{current.label}</h2>
-            <p className="mt-1 text-muted-foreground">{current.description}</p>
-            <Content />
+            {query.trim() ? (
+              <SearchResults found={found} onOpen={open} />
+            ) : (
+              <>
+                <h2 className="text-[20px] font-semibold tracking-tight">{current.label}</h2>
+                <p className="mt-1 text-muted-foreground">{current.description}</p>
+                <Content />
+              </>
+            )}
           </div>
         </div>
       </div>

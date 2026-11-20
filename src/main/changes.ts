@@ -1,6 +1,6 @@
-import { isAbsolute } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { shell } from 'electron'
-import type { Changes, SessionWorktree } from '../shared/types'
+import type { Changes, DiffScope, SessionWorktree } from '../shared/types'
 import {
   changes,
   commitAll,
@@ -8,6 +8,7 @@ import {
   currentBranch,
   diffFrom,
   discardFile,
+  fileContents,
   fileDiff,
   git,
   mergeSquash,
@@ -32,16 +33,38 @@ async function target(
   return root ? { root } : null
 }
 
-export async function sessionChanges(id: string): Promise<Changes | null> {
+// El rango de commits que mira el panel según el alcance. En "último commit", from es el padre
+// de HEAD (o el árbol vacío si es el primero) y to es HEAD.
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+async function range(
+  root: string,
+  base: string | undefined,
+  scope: DiffScope
+): Promise<{ from: string; to?: string }> {
+  if (scope === 'uncommitted') return { from: 'HEAD' }
+  if (scope === 'last') {
+    const parent = await git(['rev-parse', '--verify', '-q', 'HEAD~1'], root).then(
+      (p) => p.trim(),
+      () => EMPTY_TREE
+    )
+    return { from: parent, to: 'HEAD' }
+  }
+  return { from: await diffFrom(root, base) }
+}
+
+const scopeOf = (scope: unknown): DiffScope =>
+  scope === 'uncommitted' || scope === 'last' ? scope : 'base'
+
+export async function sessionChanges(id: string, scope?: DiffScope): Promise<Changes | null> {
   const t = await target(id)
   if (!t) return null
   try {
-    const from = await diffFrom(t.root, t.base)
+    const { from, to } = await range(t.root, t.base, scopeOf(scope))
     return {
       branch: await currentBranch(t.root),
       base: t.base ?? 'HEAD',
       isolated: !!t.wt,
-      files: await changes(t.root, from)
+      files: await changes(t.root, from, to)
     }
   } catch {
     return null // repo sin commits todavía: no hay con qué comparar
@@ -52,29 +75,69 @@ export async function sessionChanges(id: string): Promise<Changes | null> {
 // leer ni tocar un .env ignorado ni nada fuera del repo).
 async function changedFile(
   id: string,
-  path: string
-): Promise<{ root: string; from: string; file: string } | null> {
+  path: string,
+  scope?: DiffScope
+): Promise<{ root: string; from: string; to?: string; file: string } | null> {
   const t = await target(id)
   const file = String(path)
   if (!t || isAbsolute(file) || file.split(/[\\/]/).includes('..')) return null
-  const from = await diffFrom(t.root, t.base)
-  if (!(await changes(t.root, from)).some((f) => f.path === file)) return null
-  return { root: t.root, from, file }
+  const { from, to } = await range(t.root, t.base, scopeOf(scope))
+  if (!(await changes(t.root, from, to)).some((f) => f.path === file)) return null
+  return { root: t.root, from, to, file }
 }
 
 export async function sessionFileDiff(
   id: string,
   path: string,
-  ignoreSpace = false
+  ignoreSpace = false,
+  scope?: DiffScope
 ): Promise<string> {
-  const f = await changedFile(id, path)
-  return f ? fileDiff(f.root, f.from, f.file, ignoreSpace === true) : ''
+  const f = await changedFile(id, path, scope)
+  return f ? fileDiff(f.root, f.from, f.file, ignoreSpace === true, f.to) : ''
 }
 
-// Descarta lo cambiado en un solo archivo.
-export async function discardChangedFile(id: string, path: string): Promise<boolean> {
-  const f = await changedFile(id, path)
+// Las dos versiones del archivo, para desplegar contexto.
+export async function sessionFileContents(
+  id: string,
+  path: string,
+  scope?: DiffScope
+): Promise<{ old: string | null; new: string | null } | null> {
+  const f = await changedFile(id, path, scope)
+  return f ? fileContents(f.root, f.from, f.file, f.to) : null
+}
+
+// Muestra el archivo en el explorador o lo abre en VS Code. Nunca lo ejecuta ni lo abre con su
+// programa por defecto: un .bat o .js escrito por un agente correría.
+export async function showChangedFile(
+  id: string,
+  path: string,
+  scope?: DiffScope,
+  editor = false
+): Promise<boolean> {
+  const f = await changedFile(id, path, scope)
   if (!f) return false
+  const abs = join(f.root, f.file)
+  if (!editor) shell.showItemInFolder(abs)
+  else {
+    // Cada tramo codificado (un # o ? en el nombre cortaría la ruta); la unidad (C:) tal cual.
+    const path = abs
+      .replace(/\\/g, '/')
+      .split('/')
+      .map((part, i) => (i === 0 && /^[A-Za-z]:$/.test(part) ? part : encodeURIComponent(part)))
+      .join('/')
+    await shell.openExternal(`vscode://file/${path}`)
+  }
+  return true
+}
+
+// Un commit fijo ("último commit") no se descarta archivo a archivo.
+export async function discardChangedFile(
+  id: string,
+  path: string,
+  scope?: DiffScope
+): Promise<boolean> {
+  const f = await changedFile(id, path, scope)
+  if (!f || f.to) return false
   await discardFile(f.root, f.from, f.file)
   return true
 }
@@ -101,9 +164,19 @@ async function remove(wt: SessionWorktree): Promise<void> {
 const commitMessage = (message: string): string =>
   stripCredits(message) || 'Cambios de una sesión de Slate'
 
-export async function commitBranch(id: string, message: string): Promise<boolean> {
+// Rutas que el usuario dejó fuera del commit: solo relativas y dentro de la carpeta.
+const safePaths = (paths: unknown): string[] =>
+  (Array.isArray(paths) ? paths : [])
+    .map(String)
+    .filter((p) => p && !isAbsolute(p) && !p.split(/[\\/]/).includes('..'))
+
+export async function commitBranch(
+  id: string,
+  message: string,
+  exclude?: string[]
+): Promise<boolean> {
   const wt = await isolated(id)
-  return commitAll(wt.path, commitMessage(message))
+  return commitAll(wt.path, commitMessage(message), safePaths(exclude))
 }
 
 // Una vez cerrada la sesión, que no se pueda borrar su carpeta ya no deshace lo hecho:
@@ -136,11 +209,23 @@ export async function discardBranch(id: string): Promise<string> {
   return removeOrWarn(wt, 'Rama descartada')
 }
 
+// Guarda lo pendiente y sube la rama a origin, sin abrir un PR.
+export async function pushBranch(id: string, message: string, exclude?: string[]): Promise<string> {
+  const wt = await isolated(id)
+  await commitAll(wt.path, commitMessage(message), safePaths(exclude))
+  await git(['push', '-u', 'origin', wt.branch], wt.path)
+  return `Rama ${wt.branch} subida a origin`
+}
+
 // Sube la rama y abre el PR: con `gh` si está instalado; si no, la página "comparar" de GitHub.
-export async function openPullRequest(id: string, message: string): Promise<string> {
+export async function openPullRequest(
+  id: string,
+  message: string,
+  exclude?: string[]
+): Promise<string> {
   const wt = await isolated(id)
   const msg = commitMessage(message)
-  await commitAll(wt.path, msg)
+  await commitAll(wt.path, msg, safePaths(exclude))
   await git(['push', '-u', 'origin', wt.branch], wt.path)
   const title = msg.split('\n')[0]
   try {

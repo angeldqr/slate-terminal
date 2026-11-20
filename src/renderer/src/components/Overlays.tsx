@@ -23,7 +23,7 @@ import { Settings } from './Settings'
 import { TaskComposer } from './TaskComposer'
 import { cycleTheme, THEMES } from '@renderer/theme'
 import { closeOverlay, openTask } from '@renderer/overlays'
-import { keysOf, SHORTCUTS, shortcutKeys } from '@renderer/shortcuts'
+import { keysOf, SHORTCUTS, shortcutKeys, useShortcutsRev } from '@renderer/shortcuts'
 import {
   addFolder,
   currentFolder,
@@ -99,6 +99,7 @@ const paletteActions = SHORTCUTS.filter((s) => s.inPalette !== false).sort(
 )
 
 function Palette(): React.JSX.Element {
+  useShortcutsRev()
   const sessions = useStore(sidebarOrder)
   const projects = useStore((s) => s.projects)
   const folder = useStore(currentFolder)
@@ -182,6 +183,7 @@ function Palette(): React.JSX.Element {
 
 // El menú que sale del botón "Nueva sesión" del pie de la barra lateral.
 function NewSessionMenu(): React.JSX.Element {
+  useShortcutsRev()
   const folder = useStore(currentFolder)
   const root = useRef<HTMLDivElement>(null)
   // Sin campo de búsqueda: el foco va a la lista para moverse con flechas y elegir con Enter.

@@ -43,7 +43,7 @@ import {
 import { SessionIcon } from '@renderer/components/SessionIcon'
 import { Counts } from '@renderer/components/ChangesPanel'
 import { openNewSessionMenu, openSettings, openTask } from '@renderer/overlays'
-import { shortcutKeys } from '@renderer/shortcuts'
+import { shortcutKeys, useShortcutsRev } from '@renderer/shortcuts'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -372,6 +372,7 @@ function OtherSessions(): React.JSX.Element | null {
 
 // Cuántos agentes trabajan y cuántos te necesitan, de un vistazo; abre el tablero.
 function Activity(): React.JSX.Element {
+  useShortcutsRev()
   const working = useStore((s) => s.sessions.filter((x) => x.status === 'working').length)
   const waiting = useStore((s) => s.sessions.filter((x) => needsYou(x.status)).length)
   const board = useStore((s) => s.board)
@@ -412,6 +413,7 @@ function Activity(): React.JSX.Element {
 // Carpetas, sesiones y el botón de nueva sesión. Lo comparten la barra acoplada y la flotante;
 // solo la acoplada es origen del morph de Blendy (dos orígenes con el mismo id lo confundirían).
 function SidebarContent({ morphSource }: { morphSource: boolean }): React.JSX.Element {
+  useShortcutsRev()
   const projects = useStore((s) => s.projects)
   return (
     <>

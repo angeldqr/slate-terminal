@@ -4,7 +4,7 @@ import { GitBranchIcon, PaperPlaneTiltIcon, XIcon } from '@phosphor-icons/react'
 import { ago } from '@renderer/lib/time'
 import { cn } from '@renderer/lib/utils'
 import { openTask } from '@renderer/overlays'
-import { shortcutKeys } from '@renderer/shortcuts'
+import { shortcutKeys, useShortcutsRev } from '@renderer/shortcuts'
 import {
   baseName,
   folderOf,
@@ -47,6 +47,7 @@ const STATUS: Record<Status, { label: string; dot: string }> = {
 
 // "ahora", "4 min", "2 h": cuánto lleva en su estado.
 export function Board(): React.JSX.Element {
+  useShortcutsRev()
   const sessions = useStore(sidebarOrder)
   const diffStats = useStore((s) => s.diffStats)
   const [filter, setFilter] = useState<Filter>('all')

@@ -10,7 +10,9 @@ import {
   Notification,
   Tray
 } from 'electron'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { hostPids } from './host-client'
+import { listProcesses, sumTree } from './processes'
 import { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -29,7 +31,7 @@ import {
   shutdownHost,
   startHost
 } from './host-client'
-import type { Notice, SessionKind, SessionOpts } from '../shared/types'
+import type { DiffScope, Notice, SessionKind, SessionOpts } from '../shared/types'
 import { paletteOf } from '../shared/palettes'
 
 // Solo estos archivos se pueden leer o escribir desde el renderer.
@@ -207,18 +209,30 @@ function registerIpc(): void {
 
   ipcMain.handle('agents:detect', () => detectAgents())
   // Panel de cambios: el renderer solo manda el id de la sesión; main resuelve rutas y ramas.
-  ipcMain.handle('git:changes', (_, id: string) => changes.sessionChanges(String(id)))
-  ipcMain.handle('git:fileDiff', (_, id: string, path: string, ignoreSpace?: boolean) =>
-    changes.sessionFileDiff(String(id), String(path), ignoreSpace === true)
+  ipcMain.handle('git:changes', (_, id: string, scope?: DiffScope) =>
+    changes.sessionChanges(String(id), scope)
   )
-  ipcMain.handle('git:commit', (_, id: string, msg: string) =>
-    changes.commitBranch(String(id), String(msg))
+  ipcMain.handle(
+    'git:fileDiff',
+    (_, id: string, path: string, ignoreSpace?: boolean, scope?: DiffScope) =>
+      changes.sessionFileDiff(String(id), String(path), ignoreSpace === true, scope)
+  )
+  ipcMain.handle('git:fileContents', (_, id: string, path: string, scope?: DiffScope) =>
+    changes.sessionFileContents(String(id), String(path), scope)
+  )
+  ipcMain.handle(
+    'git:showFile',
+    (_, id: string, path: string, scope?: DiffScope, editor?: boolean) =>
+      changes.showChangedFile(String(id), String(path), scope, editor === true)
+  )
+  ipcMain.handle('git:commit', (_, id: string, msg: string, exclude?: string[]) =>
+    changes.commitBranch(String(id), String(msg), exclude)
   )
   ipcMain.handle('git:merge', (_, id: string, msg: string) =>
     changes.mergeBranch(String(id), String(msg))
   )
-  ipcMain.handle('git:discardFile', (_, id: string, path: string) =>
-    changes.discardChangedFile(String(id), String(path))
+  ipcMain.handle('git:discardFile', (_, id: string, path: string, scope?: DiffScope) =>
+    changes.discardChangedFile(String(id), String(path), scope)
   )
   // Un comentario del panel de cambios, directo al terminal del agente.
   ipcMain.handle('sessions:comment', (_, id: string, text: string) =>
@@ -232,8 +246,11 @@ function registerIpc(): void {
     )
   )
   ipcMain.handle('git:discard', (_, id: string) => changes.discardBranch(String(id)))
-  ipcMain.handle('git:pr', (_, id: string, msg: string) =>
-    changes.openPullRequest(String(id), String(msg))
+  ipcMain.handle('git:push', (_, id: string, msg: string, exclude?: string[]) =>
+    changes.pushBranch(String(id), String(msg), exclude)
+  )
+  ipcMain.handle('git:pr', (_, id: string, msg: string, exclude?: string[]) =>
+    changes.openPullRequest(String(id), String(msg), exclude)
   )
   // La rama actual de la carpeta, o null si no es un repo git (o si aún no tiene commits).
   ipcMain.handle('git:branch', async (_, cwd: string) => {
@@ -266,6 +283,28 @@ function registerIpc(): void {
   }))
   ipcMain.handle('app:openData', () => shell.openPath(app.getPath('userData')))
   // Insignia de la barra de tareas: cuántas sesiones te necesitan (un PNG que dibuja el renderer).
+  // Lo que gasta cada terminal (memoria y CPU de su shell y todo lo que lanzó) y el propio host.
+  ipcMain.handle('app:processes', async () => {
+    try {
+      const pids = await hostPids()
+      const procs = await listProcesses()
+      return {
+        host: pids.host ? { pid: pids.host, ...sumTree(procs, pids.host) } : null,
+        sessions: Object.fromEntries(
+          Object.entries(pids.sessions).map(([id, pid]) => [id, { pid, ...sumTree(procs, pid) }])
+        )
+      }
+    } catch {
+      return null // sin host o sin permiso para listar procesos
+    }
+  })
+  // El registro del host (host.log) si existe; si no, la carpeta de datos.
+  ipcMain.handle('app:openLogs', () => {
+    const log = join(app.getPath('userData'), 'host.log')
+    if (!existsSync(log)) return shell.openPath(app.getPath('userData'))
+    shell.showItemInFolder(log)
+    return ''
+  })
   ipcMain.on('app:badge', (_, png: string | null, label: string) => {
     win?.setOverlayIcon(png ? nativeImage.createFromDataURL(png) : null, label)
   })

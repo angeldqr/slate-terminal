@@ -11,7 +11,7 @@ import {
 } from '@phosphor-icons/react'
 import { cn } from '@renderer/lib/utils'
 import { openPalette } from '@renderer/overlays'
-import { shortcutKeys } from '@renderer/shortcuts'
+import { shortcutKeys, useShortcutsRev } from '@renderer/shortcuts'
 import { Keys } from './Keys'
 import {
   folderOf,
@@ -63,6 +63,7 @@ function WinButton({
 // por eso la franja escondida no arrastra (debe notar el puntero), la barra abierta sí, y la
 // salida del puntero se detecta con su posición en toda la ventana, no con mouseleave.
 export function TitleBar(): React.JSX.Element {
+  useShortcutsRev()
   const [maximized, setMaximized] = useState(false)
   const [near, setNear] = useState(false)
   // Solo el foco del teclado la mantiene abierta: tras un clic el botón conserva el foco

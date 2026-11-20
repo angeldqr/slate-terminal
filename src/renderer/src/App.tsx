@@ -12,7 +12,7 @@ import { Keys } from './components/Keys'
 import { DottedGlowBackground } from './components/ui/dotted-glow-background'
 import { initMotion, reducedMotion } from './motion'
 import { openTask } from './overlays'
-import { installShortcuts, shortcutKeys } from './shortcuts'
+import { installShortcuts, shortcutKeys, useShortcutsRev } from './shortcuts'
 import { addFolder, init, needsYou, newSession, useStore } from './store'
 import { applyLook, applyTheme, watchSystemTheme } from './theme'
 import { Toaster } from '@renderer/components/ui/sonner'
@@ -22,6 +22,7 @@ const loading = init().catch((err) => console.error('Slate no pudo cargar sus da
 
 // Lo que se ve cuando no hay nada abierto: una pizarra que espera, con una sola acción clara.
 function Empty(): React.JSX.Element {
+  useShortcutsRev()
   const firstProject = useStore((s) => s.projects[0])
   const primary = firstProject
     ? { label: 'Nueva shell', Icon: TerminalWindowIcon, run: () => newSession(firstProject.path) }

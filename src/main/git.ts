@@ -129,9 +129,10 @@ const lineCount = (text: string): number =>
   text ? text.split('\n').length - (text.endsWith('\n') ? 1 : 0) : 0
 
 // Lo cambiado desde `from`, comprometido o no, más los archivos nuevos sin seguimiento.
-export async function changes(cwd: string, from: string): Promise<FileChange[]> {
-  const status = await zgit(['diff', ...READ, '--name-status', from, '--'], cwd)
-  const numstat = await zgit(['diff', ...READ, '--numstat', from, '--'], cwd)
+export async function changes(cwd: string, from: string, to?: string): Promise<FileChange[]> {
+  const range = to ? [from, to] : [from]
+  const status = await zgit(['diff', ...READ, '--name-status', ...range, '--'], cwd)
+  const numstat = await zgit(['diff', ...READ, '--numstat', ...range, '--'], cwd)
   const counts = new Map(
     numstat.map((row) => {
       const [add, del, path] = row.split('\t')
@@ -144,7 +145,8 @@ export async function changes(cwd: string, from: string): Promise<FileChange[]> 
     const count = counts.get(path) ?? { add: 0, del: 0, binary: false }
     files.push({ path, status: toStatus(status[i][0]), ...count })
   }
-  for (const path of await zgit(['ls-files', '--others', '--exclude-standard'], cwd)) {
+  // Con `to` (un commit fijo) no hay archivos sin seguimiento que contar.
+  for (const path of to ? [] : await zgit(['ls-files', '--others', '--exclude-standard'], cwd)) {
     const text = await untrackedText(cwd, path)
     files.push({
       path,
@@ -163,8 +165,15 @@ export async function fileDiff(
   cwd: string,
   from: string,
   path: string,
-  ignoreSpace = false
+  ignoreSpace = false,
+  to?: string
 ): Promise<string> {
+  if (to) {
+    return git(
+      [...PLAIN, 'diff', ...READ, ...(ignoreSpace ? ['-w'] : []), from, to, '--', path],
+      cwd
+    )
+  }
   const tracked = (await git([...PLAIN, 'ls-files', '--', path], cwd)).trim() !== ''
   const inHistory =
     (await git([...PLAIN, 'ls-tree', '--name-only', from, '--', path], cwd)).trim() !== ''
@@ -176,6 +185,22 @@ export async function fileDiff(
   const lines = text.split('\n')
   if (text.endsWith('\n')) lines.pop()
   return `--- /dev/null\n+++ b/${path}\n@@ -0,0 +1,${lines.length} @@\n${lines.map((l) => `+${l}`).join('\n')}\n`
+}
+
+// Las dos versiones de un archivo, para desplegar el contexto que el diff esconde.
+// null si no existe de ese lado (archivo nuevo o borrado) o no conviene leerlo.
+export async function fileContents(
+  cwd: string,
+  from: string,
+  path: string,
+  to?: string
+): Promise<{ old: string | null; new: string | null }> {
+  const show = (rev: string): Promise<string | null> =>
+    git([...PLAIN, 'show', `${rev}:${path}`], cwd).then(
+      (t) => (t.length > MAX_READ ? null : t),
+      () => null
+    )
+  return { old: await show(from), new: to ? await show(to) : await untrackedText(cwd, path) }
 }
 
 // Deja un archivo como estaba en `from`: lo restaura si existía, lo quita si es nuevo.
@@ -190,9 +215,17 @@ export async function discardFile(cwd: string, from: string, path: string): Prom
 }
 
 // Guarda en un commit todo lo pendiente. Devuelve false si no había nada que guardar.
-export async function commitAll(cwd: string, message: string): Promise<boolean> {
+// `exclude`: rutas que se quedan fuera del commit (siguen cambiadas en la carpeta).
+export async function commitAll(
+  cwd: string,
+  message: string,
+  exclude: string[] = []
+): Promise<boolean> {
   if (!(await git(['status', '--porcelain'], cwd)).trim()) return false
   await git(['add', '-A'], cwd)
+  // Sin --no-renames un renombrado tendría dos rutas; con él (READ) cada archivo es una sola.
+  for (const path of exclude) await git([...PLAIN, 'reset', '-q', '--', path], cwd)
+  if (!(await git(['diff', '--cached', '--name-only'], cwd)).trim()) return false
   await git(['commit', '-m', message], cwd)
   return true
 }
