@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react'
-import { MotionConfig, motion } from 'motion/react'
-import { CaretDownIcon, CheckIcon, FolderSimpleIcon, GitBranchIcon } from '@phosphor-icons/react'
+import { AnimatePresence, MotionConfig, motion } from 'motion/react'
+import {
+  CaretDownIcon,
+  CheckIcon,
+  FolderSimpleIcon,
+  GitBranchIcon,
+  XIcon
+} from '@phosphor-icons/react'
 import { cn } from '@renderer/lib/utils'
 import { reducedMotion } from '@renderer/motion'
 import { closeOverlay } from '@renderer/overlays'
-import { baseName, currentFolder, launchTask, setPrefs, useStore } from '@renderer/store'
+import { baseName, currentFolder, launchTasks, setPrefs, useStore } from '@renderer/store'
 import type { SessionKind } from '../../../shared/types'
 import { SessionIcon } from './SessionIcon'
 import { GlowingEffect } from './ui/glowing-effect'
@@ -27,6 +33,9 @@ const EXAMPLES = [
 
 // Más de cuatro sesiones lado a lado ya no se leen: es el tope de una tarea.
 const MAX = 4
+// Varias tareas a la vez, cada una en su vista: más de seis ya no se siguen en el tablero.
+const MAX_TASKS = 6
+const MORE = ['Otra tarea más, o Enter para lanzarlas todas']
 
 // Dónde trabaja cada agente: en la carpeta tal cual o en una rama propia para cada uno.
 const PLACES = [
@@ -36,6 +45,8 @@ const PLACES = [
 
 // Nueva tarea: una tarea para uno o varios agentes. Con varios, cada uno trabaja en su rama
 // y se abren juntos en una vista dividida para comparar lo que hace cada uno.
+// Con Ctrl+Enter se apartan varias tareas: cada una sale con sus agentes, en su rama, y el
+// tablero se abre para verlas trabajar en paralelo (estilo Herdr).
 export function TaskComposer(): React.JSX.Element {
   const folder = useStore(currentFolder)
   // Los agentes instalados y, al final, una shell: una rama aislada para trabajar a mano.
@@ -47,6 +58,7 @@ export function TaskComposer(): React.JSX.Element {
   const saved = useStore((s) => s.prefs.taskAgents)
   const isolatePref = useStore((s) => s.prefs.taskIsolate)
   const [branch, setBranch] = useState<string | null | undefined>(undefined) // undefined: mirando
+  const [queue, setQueue] = useState<{ id: string; text: string }[]>([])
 
   useEffect(() => {
     if (!folder) return
@@ -66,8 +78,8 @@ export function TaskComposer(): React.JSX.Element {
   // Mientras main responde (undefined) cuenta como repo: solo un "no es repo" confirmado
   // desactiva el aislamiento, así una tarea lanzada al instante no sale sin su rama.
   const isRepo = branch !== null
-  // Varios agentes en la misma carpeta se pisarían: con dos o más, cada uno va a su rama.
-  const forced = isRepo && selected.length > 1
+  // Varios agentes (o varias tareas) en la misma carpeta se pisarían: cada uno va a su rama.
+  const forced = isRepo && (selected.length > 1 || queue.length > 0)
   const isolate = isRepo && (forced || isolatePref)
 
   // Guarda la selección en el orden de los chips, con `n` copias de `id`.
@@ -107,11 +119,15 @@ export function TaskComposer(): React.JSX.Element {
           ¿Qué hacemos en {baseName(folder)}?
         </h2>
         <p className="mt-1 text-muted-foreground">
-          {selected.length > 1
-            ? 'Cada agente la hace en su propia rama; luego comparas y te quedas con la mejor.'
-            : selected.length === 1
-              ? 'Elige uno o varios agentes, o varias copias del mismo. Cada uno trabaja en su rama.'
-              : 'Elige al menos un agente para lanzar la tarea.'}
+          {!selected.length
+            ? 'Elige al menos un agente para lanzar la tarea.'
+            : queue.length
+              ? 'Cada tarea sale en su propia rama y el tablero se abre para verlas trabajar a la vez.'
+              : selected.length > 1
+                ? 'Cada agente la hace en su propia rama; luego comparas y te quedas con la mejor.'
+                : isRepo
+                  ? 'Elige uno o varios agentes. Con Ctrl+Enter apartas otra tarea para lanzarlas juntas.'
+                  : 'Elige uno o varios agentes.'}
         </p>
 
         <div className="relative mt-5 rounded-lg border border-border bg-background/60">
@@ -124,10 +140,50 @@ export function TaskComposer(): React.JSX.Element {
             borderWidth={1}
           />
           <div className="relative">
+            {/* Las tareas apartadas: cada una saldrá con los agentes elegidos. */}
+            <AnimatePresence initial={false}>
+              {queue.map((task) => (
+                <motion.div
+                  key={task.id}
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                  className="overflow-hidden"
+                >
+                  <div className="group flex items-start gap-3 border-b border-border py-2.5 pr-2 pl-4">
+                    <span className="mt-[9px] size-1.5 shrink-0 rounded-full bg-muted-foreground/70" />
+                    <p className="line-clamp-2 min-w-0 flex-1 text-[15px] leading-6">{task.text}</p>
+                    <button
+                      type="button"
+                      onClick={() => setQueue((q) => q.filter((x) => x.id !== task.id))}
+                      aria-label={`Quitar la tarea ${task.text}`}
+                      className="grid size-7 shrink-0 place-items-center rounded-full text-muted-foreground opacity-0 transition-[opacity,color] duration-120 group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100"
+                    >
+                      <XIcon size={13} />
+                    </button>
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
             <PlaceholdersAndVanishInput
-              placeholders={EXAMPLES}
+              placeholders={queue.length ? MORE : EXAMPLES}
               disabled={!selected.length}
-              onSubmit={(prompt) => launchTask(folder, prompt, selected, isolate)}
+              queued={queue.length}
+              // Varias tareas solo en un repo: sin ramas propias trabajarían en la misma carpeta.
+              onQueue={
+                isRepo && queue.length < MAX_TASKS - 1
+                  ? (text) => setQueue((q) => [...q, { id: crypto.randomUUID(), text }])
+                  : undefined
+              }
+              onSubmit={(prompt) =>
+                launchTasks(
+                  folder,
+                  [...queue.map((t) => t.text), prompt].filter(Boolean),
+                  selected,
+                  isolate
+                )
+              }
               onVanished={() => closeOverlay()}
             />
             <div

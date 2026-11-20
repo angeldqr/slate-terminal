@@ -33,3 +33,10 @@ linux:
 appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
+# De aquí lee electron-updater las versiones nuevas (Ajustes › Actualizaciones). La CI publica
+# una con cada push a develop; los builds locales no publican nada.
+publish:
+  provider: github
+  owner: angeldqr
+  repo: slate-terminal
+  releaseType: release

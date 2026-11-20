@@ -15,8 +15,12 @@ import {
   FilePlusIcon,
   GitBranchIcon,
   GitCommitIcon,
+  GitDiffIcon,
   GitMergeIcon,
   GitPullRequestIcon,
+  MinusIcon,
+  PlusIcon,
+  SlidersHorizontalIcon,
   TrashIcon,
   XIcon
 } from '@phosphor-icons/react'
@@ -27,13 +31,17 @@ import {
   flashHint,
   reason,
   setDiffStats,
+  setPrefs,
+  sum,
   toggleChanges,
   useStore
 } from '@renderer/store'
+import { LIMITS } from '@renderer/prefs'
 import { useDark } from '@renderer/theme'
 import type { Changes, FileChange } from '../../../shared/types'
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -138,6 +146,11 @@ function Diff({
   tick: number
 }): React.JSX.Element {
   const dark = useDark()
+  const { codeFontSize, diffWrap, diffIgnoreSpace } = useStore((s) => ({
+    codeFontSize: s.prefs.codeFontSize,
+    diffWrap: s.prefs.diffWrap,
+    diffIgnoreSpace: s.prefs.diffIgnoreSpace
+  }))
   const [raw, setRaw] = useState<RawHunk[] | null>(null)
   const [hunks, setHunks] = useState<Hunk[] | null>(null)
   const [all, setAll] = useState(false)
@@ -146,11 +159,11 @@ function Diff({
   useEffect(() => {
     let current = true
     git
-      .fileDiff(sessionId, file.path)
+      .fileDiff(sessionId, file.path, diffIgnoreSpace)
       .then((patch) => current && setRaw(parse(patch)))
       .catch(() => current && setRaw([]))
     return () => void (current = false)
-  }, [sessionId, file.path, tick])
+  }, [sessionId, file.path, tick, diffIgnoreSpace])
 
   useEffect(() => {
     if (!raw) return
@@ -163,21 +176,30 @@ function Diff({
 
   if (file.binary) {
     return (
-      <p className="px-4 py-3 text-[12px] text-muted-foreground">
+      <p className="px-4 py-3 text-muted-foreground">
         Binario, carpeta o archivo grande: sin vista previa.
       </p>
     )
   }
-  if (!hunks || !raw)
-    return <p className="px-4 py-3 text-[12px] text-muted-foreground">Cargando…</p>
+  if (!hunks || !raw) return <p className="px-4 py-3 text-muted-foreground">Cargando…</p>
   if (!hunks.length) {
-    return <p className="px-4 py-3 text-[12px] text-muted-foreground">Sin cambios de texto.</p>
+    return (
+      <p className="px-4 py-3 text-muted-foreground">
+        {diffIgnoreSpace ? 'Solo cambian espacios en blanco.' : 'Sin cambios de texto.'}
+      </p>
+    )
   }
 
   const total = raw.reduce((sum, h) => sum + h.lines.length, 0)
   return (
-    <div className="overflow-x-auto border-t border-border bg-background/60 font-mono text-[12px] leading-5">
-      <div className="min-w-max">
+    <div
+      className={cn(
+        'border-t border-border bg-background/60 font-mono',
+        !diffWrap && 'overflow-x-auto'
+      )}
+      style={{ fontSize: codeFontSize, lineHeight: 1.6 }}
+    >
+      <div className={cn(!diffWrap && 'min-w-max')}>
         {hunks.map((h, i) => {
           return (
             <div key={i}>
@@ -186,7 +208,8 @@ function Diff({
                 <div
                   key={j}
                   className={cn(
-                    'grid grid-cols-[3.5ch_3.5ch_1fr] gap-x-2 pr-4 pl-2 whitespace-pre',
+                    'grid grid-cols-[3.5ch_3.5ch_1fr] gap-x-2 pr-4 pl-2',
+                    diffWrap ? 'break-all whitespace-pre-wrap' : 'whitespace-pre',
                     l.kind === '+' && 'bg-added/10 shadow-[inset_2px_0_var(--added)]',
                     l.kind === '-' && 'bg-removed/10 shadow-[inset_2px_0_var(--removed)]'
                   )}
@@ -225,7 +248,7 @@ export function Counts({
   className?: string
 }): React.JSX.Element {
   return (
-    <span className={cn('shrink-0 font-mono text-[11px] tabular-nums', className)}>
+    <span className={cn('shrink-0 font-mono text-[12px] tabular-nums', className)}>
       {add > 0 && <span className="text-added">+{add}</span>}
       {del > 0 && <span className="ml-1.5 text-removed">−{del}</span>}
     </span>
@@ -263,7 +286,7 @@ function FileRow({
         onClick={onToggle}
         aria-expanded={open}
         title={`${status.label}: ${file.path}`}
-        className="flex h-8 w-full items-center gap-2 px-2 text-left transition-colors duration-120 hover:bg-accent/40"
+        className="flex h-9 w-full items-center gap-2 px-3 text-left transition-colors duration-120 hover:bg-accent/40"
       >
         {open ? (
           <CaretDownIcon size={12} className="shrink-0 text-muted-foreground" />
@@ -272,7 +295,7 @@ function FileRow({
         )}
         <status.Icon size={15} className={cn('shrink-0', status.color)} />
         {/* La carpeta se recorta por el principio: lo que importa es el final de la ruta. */}
-        <span className="flex min-w-0 flex-1 text-[12px]">
+        <span className="flex min-w-0 flex-1">
           {dir && (
             <span className="min-w-0 truncate text-muted-foreground [direction:rtl]">
               <bdi>{dir}</bdi>
@@ -319,9 +342,6 @@ function DiscardItem({ onConfirm }: { onConfirm: () => void }): React.JSX.Elemen
   )
 }
 
-const sum = (files: FileChange[], key: 'add' | 'del'): number =>
-  files.reduce((total, f) => total + f[key], 0)
-
 type Action = 'merge' | 'pr' | 'commit' | 'discard'
 
 // Lo que se hace con el trabajo de una rama aislada. La acción principal es fusionar en su base.
@@ -367,15 +387,15 @@ function Actions({
         onChange={(e) => setMessage(e.target.value)}
         aria-label="Mensaje del commit"
         rows={2}
-        className="block w-full resize-none rounded-sm border border-border bg-background/60 px-2.5 py-1.5 text-[12px] leading-5 outline-none placeholder:text-muted-foreground focus:border-muted-foreground/50"
+        className="block w-full resize-none rounded-md border border-border bg-background/60 px-3 py-2 leading-5 outline-none placeholder:text-muted-foreground focus:border-muted-foreground/50"
         placeholder="Qué hace este cambio"
       />
-      {error && <p className="text-[12px] text-destructive">{error}</p>}
+      {error && <p className="text-destructive">{error}</p>}
       <div className="flex">
         <button
           onClick={merge}
           disabled={!!busy || empty || !message.trim()}
-          className="flex h-8 flex-1 items-center justify-center gap-2 rounded-l-sm bg-foreground text-[12px] font-semibold text-background transition-colors duration-120 hover:bg-foreground/85 disabled:opacity-50"
+          className="flex h-9 flex-1 items-center justify-center gap-2 rounded-l-md bg-foreground font-semibold text-background transition-colors duration-120 hover:bg-foreground/85 disabled:opacity-50"
         >
           {busy === 'merge' ? (
             <CircleNotchIcon size={14} className="animate-spin" />
@@ -388,7 +408,7 @@ function Actions({
           <DropdownMenuTrigger
             disabled={!!busy}
             aria-label="Más acciones"
-            className="grid h-8 w-8 place-items-center rounded-r-sm border-l border-background/20 bg-foreground text-background transition-colors duration-120 hover:bg-foreground/85 disabled:opacity-50"
+            className="grid h-9 w-9 place-items-center rounded-r-md border-l border-background/20 bg-foreground text-background transition-colors duration-120 hover:bg-foreground/85 disabled:opacity-50"
           >
             {busy && busy !== 'merge' ? (
               <CircleNotchIcon size={14} className="animate-spin" />
@@ -442,24 +462,80 @@ function Actions({
 export function ChangesPanel(): React.JSX.Element {
   const open = useStore((s) => s.changes)
   const id = useStore((s) => s.activeId)
+  const width = useStore((s) => s.prefs.changesWidth)
+  const [dragging, setDragging] = useState(false)
   return (
     <aside
       aria-label="Cambios"
       inert={!open}
+      style={{ width: open ? width : 0 }}
       className={cn(
-        'shrink-0 overflow-hidden transition-[width] duration-200 ease-out-quint',
-        open ? 'w-[440px] border-l border-border' : 'w-0'
+        'relative shrink-0 overflow-hidden',
+        !dragging && 'transition-[width] duration-200 ease-out-quint',
+        open && 'border-l border-border'
       )}
     >
+      {open && <ResizeHandle width={width} onDragging={setDragging} />}
       <MotionConfig reducedMotion="user">
         {/* Por sesión: al cambiar de sesión todo vuelve a empezar, plegado. */}
-        <PanelBody key={id ?? 'ninguna'} id={id} open={open} />
+        <PanelBody key={id ?? 'ninguna'} id={id} open={open} width={width} />
       </MotionConfig>
     </aside>
   )
 }
 
-function PanelBody({ id, open }: { id: string | null; open: boolean }): React.JSX.Element {
+// El borde izquierdo del panel: se arrastra para ensancharlo (o con las flechas, con el foco).
+function ResizeHandle({
+  width,
+  onDragging
+}: {
+  width: number
+  onDragging: (on: boolean) => void
+}): React.JSX.Element {
+  const { min, max } = LIMITS.changesWidth
+  const clamp = (w: number): number => Math.round(Math.min(max, Math.max(min, w)))
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Ancho del panel de cambios"
+      aria-valuenow={width}
+      aria-valuemin={min}
+      aria-valuemax={max}
+      tabIndex={0}
+      onKeyDown={(e) => {
+        const step = e.key === 'ArrowLeft' ? 24 : e.key === 'ArrowRight' ? -24 : 0
+        if (step) setPrefs({ changesWidth: clamp(width + step) })
+      }}
+      onPointerDown={(e) => {
+        const startX = e.clientX
+        onDragging(true)
+        const move = (ev: PointerEvent): void =>
+          setPrefs({ changesWidth: clamp(width + startX - ev.clientX) })
+        const up = (): void => {
+          onDragging(false)
+          removeEventListener('pointermove', move)
+          removeEventListener('pointerup', up)
+        }
+        addEventListener('pointermove', move)
+        addEventListener('pointerup', up)
+      }}
+      className="group absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize outline-none"
+    >
+      <span className="absolute inset-y-0 left-0 w-px transition-colors duration-120 group-hover:bg-muted-foreground/50 group-focus-visible:bg-foreground group-active:bg-foreground" />
+    </div>
+  )
+}
+
+function PanelBody({
+  id,
+  open,
+  width
+}: {
+  id: string | null
+  open: boolean
+  width: number
+}): React.JSX.Element {
   const status = useStore((s) => s.sessions.find((x) => x.id === id)?.status)
   const [changes, setChanges] = useState<Changes | null | undefined>(undefined)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -510,10 +586,10 @@ function PanelBody({ id, open }: { id: string | null; open: boolean }): React.JS
     })
 
   return (
-    <div className="flex h-full w-[440px] flex-col bg-sidebar/40">
+    <div className="flex h-full flex-col bg-sidebar/40" style={{ width }}>
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border pr-1.5 pl-3">
         {changes ? (
-          <span className="flex min-w-0 items-center gap-1.5 text-[12px]">
+          <span className="flex min-w-0 items-center gap-1.5">
             <GitBranchIcon size={14} className="shrink-0 text-muted-foreground" />
             <span className="truncate">{changes.branch.replace(/^slate\//, '')}</span>
             {changes.isolated && (
@@ -524,7 +600,7 @@ function PanelBody({ id, open }: { id: string | null; open: boolean }): React.JS
             )}
           </span>
         ) : (
-          <span className="text-[12px] font-medium">Cambios</span>
+          <span className="font-medium">Cambios</span>
         )}
         <Counts add={add} del={del} className="ml-auto" />
         <button onClick={refresh} aria-label="Recargar" title="Recargar" className={iconButton}>
@@ -543,6 +619,7 @@ function PanelBody({ id, open }: { id: string | null; open: boolean }): React.JS
             <ArrowsOutLineVerticalIcon size={15} />
           )}
         </button>
+        <DiffOptions />
         <button
           onClick={toggleChanges}
           aria-label="Cerrar cambios"
@@ -584,9 +661,70 @@ function PanelBody({ id, open }: { id: string | null; open: boolean }): React.JS
 
 function Empty({ title, text }: { title: string; text: string }): React.JSX.Element {
   return (
-    <div className="px-6 pt-16 text-center">
-      <p className="font-medium">{title}</p>
-      <p className="mt-1 text-[12px] text-muted-foreground">{text}</p>
+    <div className="flex flex-col items-center px-8 pt-20 text-center">
+      <span className="grid size-10 place-items-center rounded-full border border-border text-muted-foreground">
+        <GitDiffIcon size={18} />
+      </span>
+      <p className="mt-4 text-[15px] font-medium">{title}</p>
+      <p className="mt-1.5 max-w-64 leading-relaxed text-muted-foreground">{text}</p>
     </div>
+  )
+}
+
+// Cómo se ve el diff: ajuste de línea, espacios y tamaño del código. Se guarda en las preferencias.
+function DiffOptions(): React.JSX.Element {
+  const { diffWrap, diffIgnoreSpace, codeFontSize } = useStore((s) => ({
+    diffWrap: s.prefs.diffWrap,
+    diffIgnoreSpace: s.prefs.diffIgnoreSpace,
+    codeFontSize: s.prefs.codeFontSize
+  }))
+  const { min, max } = LIMITS.codeFontSize
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label="Opciones del diff"
+        title="Opciones del diff"
+        className={iconButton}
+      >
+        <SlidersHorizontalIcon size={15} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-60">
+        <DropdownMenuCheckboxItem
+          checked={diffWrap}
+          onCheckedChange={(v) => setPrefs({ diffWrap: v })}
+          onSelect={(e) => e.preventDefault()}
+        >
+          Ajustar líneas largas
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem
+          checked={diffIgnoreSpace}
+          onCheckedChange={(v) => setPrefs({ diffIgnoreSpace: v })}
+          onSelect={(e) => e.preventDefault()}
+        >
+          Ignorar espacios en blanco
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator />
+        <div className="flex items-center gap-1 py-1 pr-1 pl-2">
+          <span className="flex-1">Tamaño del código</span>
+          <button
+            aria-label="Código más pequeño"
+            disabled={codeFontSize <= min}
+            onClick={() => setPrefs({ codeFontSize: codeFontSize - 1 })}
+            className={cn(iconButton, 'disabled:opacity-40')}
+          >
+            <MinusIcon size={13} />
+          </button>
+          <span className="w-7 text-center font-mono text-[12px] tabular-nums">{codeFontSize}</span>
+          <button
+            aria-label="Código más grande"
+            disabled={codeFontSize >= max}
+            onClick={() => setPrefs({ codeFontSize: codeFontSize + 1 })}
+            className={cn(iconButton, 'disabled:opacity-40')}
+          >
+            <PlusIcon size={13} />
+          </button>
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }

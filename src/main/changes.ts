@@ -47,7 +47,11 @@ export async function sessionChanges(id: string): Promise<Changes | null> {
   }
 }
 
-export async function sessionFileDiff(id: string, path: string): Promise<string> {
+export async function sessionFileDiff(
+  id: string,
+  path: string,
+  ignoreSpace = false
+): Promise<string> {
   const t = await target(id)
   // La ruta llega del renderer: solo se sirve si es una de las que cambiaron (así no se puede
   // leer un .env ignorado ni nada fuera del repo).
@@ -55,7 +59,7 @@ export async function sessionFileDiff(id: string, path: string): Promise<string>
   if (!t || isAbsolute(file) || file.split(/[\\/]/).includes('..')) return ''
   const from = await diffFrom(t.root, t.base)
   if (!(await changes(t.root, from)).some((f) => f.path === file)) return ''
-  return fileDiff(t.root, from, file)
+  return fileDiff(t.root, from, file, ignoreSpace === true)
 }
 
 // Solo para sesiones aisladas: las demás no tienen una rama propia que fusionar o descartar.

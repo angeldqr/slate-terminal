@@ -67,7 +67,10 @@ writeFileSync(
 )
 // Sin avisos del sistema: los hooks de prueba llegan con la ventana sin foco.
 // Sin mantener sesiones al salir: cada cierre deja el equipo limpio (la persistencia se prueba al final).
-writeFileSync(join(data, 'prefs.json'), JSON.stringify({ notify: false, keepAlive: false }))
+writeFileSync(
+  join(data, 'prefs.json'),
+  JSON.stringify({ notify: false, keepAlive: false, autoUpdate: false })
+)
 
 const app = await launchApp()
 const win = await app.firstWindow()
@@ -465,6 +468,51 @@ await win.waitForTimeout(300)
 await shot('ajustes-avanzado')
 console.log('· ajustes: avanzado muestra el host en marcha y la carpeta de datos')
 
+// Un tema gris de cada modo: Pizarra tiñe el terminal y la interfaz; el botón de la fila lo
+// devuelve a su valor.
+await win.getByRole('button', { name: 'Apariencia', exact: true }).click()
+await win.getByRole('radio', { name: 'Pizarra' }).click()
+await win.waitForTimeout(700)
+const tokens = () =>
+  win.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--background'))
+assert.equal((await tokens()).trim(), '#0d1117', 'el tema gris llega a la interfaz')
+await shot('ajustes-pizarra')
+await win.getByRole('radio', { name: 'Grafito' }).click()
+await win.waitForTimeout(600)
+assert.equal((await tokens()).trim(), '#0c0d0e')
+// Tamaño de la interfaz: el zoom cambia y el botón de restablecer lo devuelve al 100 %.
+await win.getByRole('slider', { name: 'Tamaño de la interfaz' }).focus()
+await win.keyboard.press('ArrowRight')
+await win.waitForTimeout(300)
+assert.equal(
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].webContents.getZoomFactor()
+  ),
+  1.05
+)
+await win.getByRole('button', { name: 'Restablecer tamaño de la interfaz' }).click()
+await win.waitForTimeout(300)
+assert.equal(
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].webContents.getZoomFactor()
+  ),
+  1
+)
+console.log('· ajustes: temas grises y tamaño de la interfaz con restablecer')
+
+await win.getByRole('button', { name: 'Terminal', exact: true }).click()
+await win.waitForTimeout(400)
+await shot('ajustes-terminal-2')
+await win.getByRole('button', { name: 'Cambios', exact: true }).click()
+await win.getByRole('slider', { name: 'Tamaño del código' }).waitFor()
+await win.waitForTimeout(400)
+await shot('ajustes-cambios')
+await win.getByRole('button', { name: 'Actualizaciones', exact: true }).click()
+await win.getByText(/copia de desarrollo|Mira si hay una versión nueva/).waitFor()
+await win.waitForTimeout(400)
+await shot('ajustes-actualizaciones')
+console.log('· ajustes: terminal, cambios y actualizaciones')
+
 await win.getByRole('button', { name: 'Apariencia', exact: true }).click()
 await win.getByRole('switch', { name: 'Barra superior fija' }).click()
 await win.keyboard.press('Escape')
@@ -540,7 +588,13 @@ writeFileSync(
 // Al reabrir con el tema claro guardado, la página arranca ya en claro: sin destello oscuro.
 writeFileSync(
   join(data, 'prefs.json'),
-  JSON.stringify({ theme: 'light', notify: false, tray: true, keepAlive: false })
+  JSON.stringify({
+    theme: 'light',
+    notify: false,
+    tray: true,
+    keepAlive: false,
+    autoUpdate: false
+  })
 )
 const again = await launchApp()
 const first = await again.firstWindow()
@@ -685,6 +739,56 @@ await first.waitForTimeout(700)
 await shot2('cambios-oscuro')
 console.log('· el panel en oscuro')
 
+// Varias tareas a la vez: Ctrl+Enter aparta una, Enter lanza todas. Cada una sale con su shell en
+// su rama y el tablero se abre para verlas trabajar.
+await first.keyboard.press('Control+Shift+G') // cierra el panel de cambios
+const beforeTasks = (await sessionsNow()).length
+await first.keyboard.press('Control+Shift+A')
+// Las copias quedaron en ×2: ×2 → ×3 → ×1, una shell por tarea.
+await first.getByRole('button', { name: 'Copias de Shell: 2' }).click()
+await first.getByRole('button', { name: 'Copias de Shell: 3' }).click()
+const taskBox = first.getByRole('textbox', { name: 'Tarea', exact: true })
+await taskBox.fill('Revisar estilos')
+await first.keyboard.press('Control+Enter')
+await taskBox.fill('Documentar atajos')
+await first.waitForTimeout(400)
+await shot2('tareas-varias')
+await first.keyboard.press('Enter')
+const board = first.getByLabel('Tablero de sesiones')
+await board.waitFor({ timeout: 8000 })
+for (const b of ['revisar-estilos', 'documentar-atajos']) {
+  await board.getByText(b, { exact: true }).waitFor({ timeout: 10000 })
+}
+assert.equal((await sessionsNow()).length, beforeTasks + 2, 'una sesión por tarea')
+assert.ok(
+  existsSync(join(testRepo, '.slate', 'worktrees', 'documentar-atajos')),
+  'cada tarea en su rama'
+)
+// Lo que imprime cada terminal llega a su tarjeta.
+const docs = await byBranch('documentar-atajos')
+await first.evaluate((id) => window.slate.sessions.write(id, 'echo hola-tablero\r'), docs.id)
+await board.getByText('hola-tablero').first().waitFor({ timeout: 8000 })
+await first.waitForTimeout(600)
+await shot2('tablero')
+// Filtrar: ninguna shell está trabajando.
+await board.getByRole('radio', { name: /^Trabajando/ }).click()
+await board.getByText('Ninguna sesión en este estado').waitFor()
+await board.getByRole('radio', { name: /^Todas/ }).click()
+// Elegir una tarjeta la abre y cierra el tablero.
+await board.getByRole('button', { name: /Documentar atajos/ }).click()
+await board.waitFor({ state: 'detached' })
+await first
+  .locator('nav [data-status][aria-current]')
+  .filter({ hasText: 'documentar-atajos' })
+  .waitFor({ timeout: 3000 })
+console.log('· varias tareas: una rama por tarea y el tablero las muestra en vivo')
+// Ctrl+Shift+O lo abre y Escape lo cierra.
+await first.keyboard.press('Control+Shift+O')
+await board.waitFor()
+await first.keyboard.press('Escape')
+await board.waitFor({ state: 'detached' })
+console.log('· Ctrl+Shift+O abre el tablero y Escape lo cierra')
+
 // Con la bandeja, el botón de cerrar esconde la ventana y la app sigue viva.
 await first.evaluate(() => window.slate.win.close())
 await first.waitForTimeout(500)
@@ -709,7 +813,10 @@ const output = async (w, id, text) => {
   }
   throw new Error(`no salió "${text.trim()}" en la sesión`)
 }
-writeFileSync(join(data, 'prefs.json'), JSON.stringify({ notify: false, keepAlive: true }))
+writeFileSync(
+  join(data, 'prefs.json'),
+  JSON.stringify({ notify: false, keepAlive: true, autoUpdate: false })
+)
 writeFileSync(join(data, 'layout.json'), 'null')
 const keep = await launchApp()
 const kw = await keep.firstWindow()

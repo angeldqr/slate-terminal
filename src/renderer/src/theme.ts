@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import { reducedMotion } from './motion'
-import type { Theme } from './prefs'
+import { paletteOf, type Palette } from '../../shared/palettes'
+import type { Prefs, Theme } from './prefs'
 import { getState, setPrefs, useStore } from './store'
 
 const media = matchMedia('(prefers-color-scheme: dark)')
@@ -22,11 +23,35 @@ export function useDark(): boolean {
   )
 }
 
+// El tema gris en uso, según el modo ya resuelto.
+export function usePalette(): Palette {
+  const dark = useDark()
+  const id = useStore((s) => (dark ? s.prefs.darkPalette : s.prefs.lightPalette))
+  return paletteOf(id, dark)
+}
+
+// Los tokens del tema encima de los de styles.css (que son los de Grafito y Tiza).
+export function paintPalette(p: Palette): void {
+  const root = document.documentElement
+  root.dataset.theme = p.dark ? 'dark' : 'light'
+  const t = p.tokens
+  for (const [name, value] of Object.entries({
+    background: t.background,
+    sidebar: t.sidebar,
+    popover: t.popover,
+    accent: t.accent,
+    border: t.border,
+    'muted-foreground': t.muted,
+    foreground: t.foreground
+  }))
+    root.style.setProperty(`--${name}`, value)
+}
+
 // Se aplica en el acto (no en un efecto): la transición de tema captura la página justo después.
 export function applyTheme(): void {
-  document.documentElement.dataset.theme = resolve(getState().prefs.theme, media.matches)
-    ? 'dark'
-    : 'light'
+  const { theme, darkPalette, lightPalette } = getState().prefs
+  const dark = resolve(theme, media.matches)
+  paintPalette(paletteOf(dark ? darkPalette : lightPalette, dark))
 }
 
 // "Automático" sigue al sistema también con Slate abierto.
@@ -41,9 +66,13 @@ export const THEMES: { id: Theme; label: string }[] = [
 ]
 
 // El tema nuevo se revela en un círculo que crece desde donde se pidió (o desde el centro).
-export function setTheme(theme: Theme, from?: { x: number; y: number }): void {
+// Vale para el modo y para el tema gris de cada modo.
+export function setTheme(
+  patch: Theme | Partial<Pick<Prefs, 'theme' | 'darkPalette' | 'lightPalette'>>,
+  from?: { x: number; y: number }
+): void {
   const change = (): void => {
-    setPrefs({ theme })
+    setPrefs(typeof patch === 'string' ? { theme: patch } : patch)
     applyTheme()
   }
   if (!document.startViewTransition || reducedMotion()) return change()

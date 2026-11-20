@@ -10,6 +10,7 @@ import {
   PaperPlaneTiltIcon,
   PlusIcon,
   SquareSplitVerticalIcon,
+  SquaresFourIcon,
   MagnifyingGlassIcon,
   TerminalWindowIcon,
   XIcon,
@@ -25,6 +26,7 @@ import {
   nextNeedingYou,
   selectByIndex,
   splitSession,
+  toggleBoard,
   toggleChanges,
   toggleSidebar
 } from './store'
@@ -146,6 +148,14 @@ export const SHORTCUTS: Shortcut[] = [
     mac: 'Cmd+Shift+G',
     icon: GitDiffIcon,
     run: toggleChanges
+  },
+  {
+    id: 'board',
+    label: 'Tablero de sesiones',
+    win: 'Ctrl+Shift+O',
+    mac: 'Cmd+Shift+O',
+    icon: SquaresFourIcon,
+    run: toggleBoard
   },
   {
     id: 'sidebar',

@@ -1,6 +1,6 @@
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowUpIcon } from '@phosphor-icons/react'
+import { ArrowUpIcon, PlusIcon } from '@phosphor-icons/react'
 import { cn } from '@renderer/lib/utils'
 
 // Placeholders And Vanish Input de Aceternity, adaptado a Slate:
@@ -8,7 +8,9 @@ import { cn } from '@renderer/lib/utils'
 //   desvanecido dibuja todas las líneas, con el mismo ajuste de palabras que el campo;
 // - tokens de grafito y tiza en vez de la píldora blanca, e icono de Phosphor;
 // - `disabled`, el valor limpio en `onSubmit` y `onVanished` al terminar de desvanecerse;
-// - con prefers-reduced-motion no hay partículas: el texto se borra y listo.
+// - con prefers-reduced-motion no hay partículas: el texto se borra y listo;
+// - con `onQueue`, Ctrl+Enter (o el botón +) aparta lo escrito como otra tarea y vacía el campo;
+//   con tareas apartadas (`queued`), Enter lanza aunque el campo esté vacío.
 type Particle = { x: number; y: number; r: number; color: string }
 
 const PAD_X = 16 // px-4
@@ -19,11 +21,15 @@ export function PlaceholdersAndVanishInput({
   placeholders,
   onSubmit,
   onVanished,
+  onQueue,
+  queued = 0,
   disabled
 }: {
   placeholders: string[]
   onSubmit: (value: string) => void
   onVanished?: () => void
+  onQueue?: (value: string) => void
+  queued?: number
   disabled?: boolean
 }) {
   const [currentPlaceholder, setCurrentPlaceholder] = useState(0)
@@ -141,11 +147,19 @@ export function PlaceholdersAndVanishInput({
     frame(start)
   }
 
+  const queue = (): void => {
+    const text = value.trim()
+    if (!text || !onQueue || animating) return
+    onQueue(text)
+    setValue('')
+    inputRef.current?.focus()
+  }
+
   const submit = (): void => {
     const text = value.trim()
-    if (!text || disabled || animating) return
+    if ((!text && !queued) || disabled || animating) return
     onSubmit(text)
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (!text || matchMedia('(prefers-reduced-motion: reduce)').matches) {
       setValue('')
       onVanished?.()
       return
@@ -181,17 +195,31 @@ export function PlaceholdersAndVanishInput({
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault()
-              submit()
+              if (e.ctrlKey || e.metaKey) queue()
+              else submit()
             }
           }}
           className={cn(
-            'relative z-10 block max-h-40 min-h-12 w-full resize-none border-none bg-transparent py-3 pr-14 pl-4 text-[15px] leading-6 text-foreground [field-sizing:content] focus:ring-0 focus:outline-none',
+            'relative z-10 block max-h-40 min-h-12 w-full resize-none border-none bg-transparent py-3 pl-4 text-[15px] leading-6 text-foreground [field-sizing:content] focus:ring-0 focus:outline-none',
+            onQueue ? 'pr-24' : 'pr-14',
             animating && 'text-transparent'
           )}
         />
+        {onQueue && (
+          <button
+            type="button"
+            onClick={queue}
+            disabled={!value.trim()}
+            aria-label="Añadir otra tarea"
+            title="Añadir otra tarea (Ctrl+Enter)"
+            className="absolute right-12 bottom-2 z-10 grid size-8 place-items-center rounded-full text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            <PlusIcon size={15} weight="bold" />
+          </button>
+        )}
         <button
           type="submit"
-          disabled={!value.trim() || disabled}
+          disabled={(!value.trim() && !queued) || disabled}
           aria-label="Lanzar tarea"
           className="absolute right-2 bottom-2 z-10 grid size-8 place-items-center rounded-full bg-foreground text-background transition-colors duration-200 disabled:bg-accent disabled:text-muted-foreground"
         >
@@ -207,7 +235,10 @@ export function PlaceholdersAndVanishInput({
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: -15, opacity: 0 }}
                 transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                className="w-[calc(100%-4rem)] truncate py-3 pl-4 text-left text-[15px] leading-6 text-muted-foreground"
+                className={cn(
+                  'truncate py-3 pl-4 text-left text-[15px] leading-6 text-muted-foreground',
+                  onQueue ? 'w-[calc(100%-6.5rem)]' : 'w-[calc(100%-4rem)]'
+                )}
               >
                 {placeholders[currentPlaceholder]}
               </motion.p>

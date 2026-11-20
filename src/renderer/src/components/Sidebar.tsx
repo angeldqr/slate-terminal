@@ -6,6 +6,7 @@ import {
   ArrowBendDownRightIcon,
   PaperPlaneTiltIcon,
   PlusIcon,
+  SquaresFourIcon,
   TerminalWindowIcon
 } from '@phosphor-icons/react'
 import { cn } from '@renderer/lib/utils'
@@ -14,6 +15,7 @@ import {
   groupByView,
   isShared,
   moveToOwnView,
+  needsYou,
   newSession,
   placeBeside,
   removeFolder,
@@ -22,6 +24,7 @@ import {
   samePath,
   selectSession,
   splitSession,
+  toggleBoard,
   toggleFolder,
   useStore,
   viewOf,
@@ -139,6 +142,7 @@ function SessionRow({
         <div
           data-status={session.status}
           data-unread={session.unread}
+          aria-current={active ? 'true' : undefined}
           onClick={() => selectSession(session.id)}
           onDoubleClick={() => setEditing('direct')}
           title={parentTitle && `Lanzada por ${parentTitle}`}
@@ -340,14 +344,54 @@ function OtherSessions(): React.JSX.Element | null {
   )
 }
 
+// Cuántos agentes trabajan y cuántos te necesitan, de un vistazo; abre el tablero.
+function Activity(): React.JSX.Element {
+  const working = useStore((s) => s.sessions.filter((x) => x.status === 'working').length)
+  const waiting = useStore((s) => s.sessions.filter((x) => needsYou(x.status)).length)
+  const board = useStore((s) => s.board)
+  const label = [
+    working && `${working} trabajando`,
+    waiting && `${waiting} te ${waiting === 1 ? 'necesita' : 'necesitan'}`
+  ]
+    .filter(Boolean)
+    .join(', ')
+  return (
+    <button
+      onClick={toggleBoard}
+      aria-pressed={board}
+      aria-label={label ? `Tablero: ${label}` : 'Tablero'}
+      title={`Tablero (${shortcutKeys('board')})`}
+      className={cn(
+        'ml-auto flex h-7 items-center gap-2 rounded-sm px-1.5 text-[12px] text-muted-foreground transition-colors duration-120 hover:bg-accent/40 hover:text-foreground',
+        board && 'bg-accent text-foreground'
+      )}
+    >
+      {working > 0 && (
+        <span className="flex items-center gap-1 tabular-nums">
+          <span className="size-1.5 animate-breathe rounded-full bg-foreground" />
+          {working}
+        </span>
+      )}
+      {waiting > 0 && (
+        <span className="flex items-center gap-1 text-attention tabular-nums">
+          <span className="size-1.5 rounded-full bg-attention" />
+          {waiting}
+        </span>
+      )}
+      <SquaresFourIcon size={15} />
+    </button>
+  )
+}
+
 // Carpetas, sesiones y el botón de nueva sesión. Lo comparten la barra acoplada y la flotante;
 // solo la acoplada es origen del morph de Blendy (dos orígenes con el mismo id lo confundirían).
 function SidebarContent({ morphSource }: { morphSource: boolean }): React.JSX.Element {
   const projects = useStore((s) => s.projects)
   return (
     <>
-      <div className="flex h-9 shrink-0 items-center px-4 text-[13px] font-semibold tracking-tight">
-        Slate
+      <div className="flex h-9 shrink-0 items-center pr-2 pl-4">
+        <span className="text-[13px] font-semibold tracking-tight">Slate</span>
+        <Activity />
       </div>
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 pt-1">
         {projects.map((p) => (

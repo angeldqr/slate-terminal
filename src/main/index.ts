@@ -19,6 +19,7 @@ import * as sessions from './sessions'
 import { currentBranch, repoRoot } from './git'
 import * as changes from './changes'
 import { handleMcp } from './mcp'
+import * as updater from './updater'
 import {
   HostVersionError,
   hostConnected,
@@ -27,6 +28,7 @@ import {
   startHost
 } from './host-client'
 import type { Notice, SessionKind, SessionOpts } from '../shared/types'
+import { paletteOf } from '../shared/palettes'
 
 // Solo estos archivos se pueden leer o escribir desde el renderer.
 const STORES = new Set(['prefs', 'projects', 'layout'])
@@ -65,8 +67,13 @@ function setTray(on: boolean): void {
 type SavedPrefs = {
   tray?: unknown
   theme?: unknown
+  darkPalette?: unknown
+  lightPalette?: unknown
+  uiScale?: unknown
+  shell?: unknown
   orchestration?: unknown
   keepAlive?: unknown
+  autoUpdate?: unknown
 } | null
 
 // Al salir, ¿las sesiones siguen vivas en el host? Sí por defecto; `stopOnQuit` lo fuerza a no
@@ -79,6 +86,7 @@ let stopOnQuit = false
 function applyPrefs(prefs: SavedPrefs): void {
   setTray(prefs?.tray === true)
   sessions.setOrchestration(prefs?.orchestration !== false)
+  sessions.setShell(prefs?.shell)
   keepAlive = prefs?.keepAlive !== false
 }
 
@@ -105,7 +113,10 @@ function notify({ id, title, body, silent }: Notice): void {
 }
 
 function createWindow(): void {
-  const theme = startsDark(readJson<SavedPrefs>('prefs', null)) ? 'dark' : 'light'
+  const prefs = readJson<SavedPrefs>('prefs', null)
+  const dark = startsDark(prefs)
+  const theme = dark ? 'dark' : 'light'
+  const palette = paletteOf(dark ? prefs?.darkPalette : prefs?.lightPalette, dark)
   win = new BrowserWindow({
     width: 1200,
     height: 760,
@@ -113,12 +124,18 @@ function createWindow(): void {
     minHeight: 400,
     show: false,
     frame: false,
-    backgroundColor: theme === 'dark' ? '#151719' : '#f0f1f2', // la pizarra de cada tema
+    backgroundColor: palette.tokens.sidebar, // el marco del tema, sin destello
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: true
+      sandbox: true,
+      // El tamaño de la interfaz (Ajustes › Apariencia) desde el primer frame.
+      // Lo escribe el renderer: se acota a lo que ofrece Ajustes (85–130 %).
+      zoomFactor:
+        typeof prefs?.uiScale === 'number' && Number.isFinite(prefs.uiScale)
+          ? Math.min(130, Math.max(85, prefs.uiScale)) / 100
+          : 1
     }
   })
 
@@ -139,10 +156,11 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
+  const query = { theme, palette: palette.id }
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}?theme=${theme}`)
+    win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}?${new URLSearchParams(query)}`)
   } else {
-    win.loadFile(join(__dirname, '../renderer/index.html'), { query: { theme } })
+    win.loadFile(join(__dirname, '../renderer/index.html'), { query })
   }
 }
 
@@ -160,6 +178,16 @@ function registerIpc(): void {
     return n
   })
   ipcMain.handle('sessions:buffer', (_, id: string) => sessions.readBuffer(id))
+  // Las últimas líneas de cada sesión, ya como texto: el tablero las muestra en vivo.
+  ipcMain.handle('sessions:screens', (_, ids: string[], lines: number) =>
+    Object.fromEntries(
+      (Array.isArray(ids) ? ids.slice(0, 200) : []).map((id) => [
+        String(id),
+        sessions.readScreen(String(id), Math.min(40, Math.max(1, Number(lines) || 12))) ?? ''
+      ])
+    )
+  )
+  ipcMain.handle('shells:list', () => sessions.listShells())
   ipcMain.handle('sessions:rename', (_, id: string, title: string) =>
     sessions.renameSession(id, title)
   )
@@ -172,8 +200,8 @@ function registerIpc(): void {
   ipcMain.handle('agents:detect', () => detectAgents())
   // Panel de cambios: el renderer solo manda el id de la sesión; main resuelve rutas y ramas.
   ipcMain.handle('git:changes', (_, id: string) => changes.sessionChanges(String(id)))
-  ipcMain.handle('git:fileDiff', (_, id: string, path: string) =>
-    changes.sessionFileDiff(String(id), String(path))
+  ipcMain.handle('git:fileDiff', (_, id: string, path: string, ignoreSpace?: boolean) =>
+    changes.sessionFileDiff(String(id), String(path), ignoreSpace === true)
   )
   ipcMain.handle('git:commit', (_, id: string, msg: string) =>
     changes.commitBranch(String(id), String(msg))
@@ -208,6 +236,23 @@ function registerIpc(): void {
     host: hostConnected()
   }))
   ipcMain.handle('app:openData', () => shell.openPath(app.getPath('userData')))
+
+  ipcMain.handle('update:state', () => updater.updateState())
+  ipcMain.on('update:check', () => updater.checkForUpdates())
+  ipcMain.on('update:download', () => updater.downloadUpdate())
+  // Instalar reemplaza el ejecutable, también el del host: las sesiones se cierran antes, con
+  // calma, en vez de que el instalador las mate.
+  // Un segundo clic mientras se cierran no vuelve a empezar; si cerrar falla, se instala igual
+  // (el instalador termina lo que quede).
+  let installing = false
+  ipcMain.on('update:install', async () => {
+    if (installing || updater.updateState().status !== 'ready') return
+    installing = true
+    await sessions.closeAll().catch(() => {})
+    shutdownHost()
+    sessionsClosed = true
+    updater.installUpdate()
+  })
 
   ipcMain.handle('dialog:pickFolder', async () => {
     const res = await dialog.showOpenDialog(win!, { properties: ['openDirectory'] })
@@ -266,8 +311,14 @@ app.whenReady().then(async () => {
     return
   }
   registerIpc()
-  applyPrefs(readJson<SavedPrefs>('prefs', null))
+  const prefs = readJson<SavedPrefs>('prefs', null)
+  applyPrefs(prefs)
   createWindow()
+  updater.initUpdater((state) => {
+    if (win && !win.isDestroyed()) win.webContents.send('update:state', state)
+  })
+  // Al abrir, se mira en silencio si hay una versión nueva (se puede apagar en Ajustes).
+  if (prefs?.autoUpdate !== false) setTimeout(updater.checkForUpdates, 8000)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

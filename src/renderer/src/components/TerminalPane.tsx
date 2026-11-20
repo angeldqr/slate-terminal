@@ -9,19 +9,11 @@ import '@xterm/xterm/css/xterm.css'
 import { terminals } from '@renderer/terminals'
 import { fontStack, type Prefs } from '@renderer/prefs'
 import { getState, useStore } from '@renderer/store'
-import { useDark } from '@renderer/theme'
+import { usePalette } from '@renderer/theme'
+import type { Palette } from '../../../shared/palettes'
 
-// Colores ANSI en la paleta pizarra y tiza: apagados, sin saturar.
-const darkTheme = {
-  background: '#0c0d0e',
-  foreground: '#edeeef',
-  cursor: '#edeeef',
-  cursorAccent: '#0c0d0e',
-  selectionBackground: '#3a3e43',
-  overviewRulerBorder: '#0c0d0e', // mismo color que el fondo: el borde no se ve
-  scrollbarSliderBackground: '#24272a',
-  scrollbarSliderHoverBackground: '#3a3e43',
-  scrollbarSliderActiveBackground: '#5c6168',
+// Colores ANSI apagados, sin saturar. El fondo, el texto y la selección los pone el tema gris.
+const darkAnsi = {
   black: '#24272a',
   red: '#e5534b',
   green: '#8fbf7f',
@@ -40,17 +32,8 @@ const darkTheme = {
   brightWhite: '#edeeef'
 }
 
-// La misma paleta sobre tiza: los colores bajan de brillo para leerse sobre fondo claro.
-const lightTheme = {
-  background: '#fafafa',
-  foreground: '#121314',
-  cursor: '#121314',
-  cursorAccent: '#fafafa',
-  selectionBackground: '#d4d7db',
-  overviewRulerBorder: '#fafafa',
-  scrollbarSliderBackground: '#dcdee0',
-  scrollbarSliderHoverBackground: '#c4c7cb',
-  scrollbarSliderActiveBackground: '#9a9fa5',
+// Sobre fondo claro los colores bajan de brillo para leerse.
+const lightAnsi = {
   black: '#24272a',
   red: '#c4382f',
   green: '#3f7d3a',
@@ -69,19 +52,48 @@ const lightTheme = {
   brightWhite: '#121314'
 }
 
+const themeOf = ({ dark, tokens: t }: Palette): ITerminalOptions['theme'] => ({
+  ...(dark ? darkAnsi : lightAnsi),
+  background: t.background,
+  foreground: t.foreground,
+  cursor: t.foreground,
+  cursorAccent: t.background,
+  selectionBackground: t.selection,
+  overviewRulerBorder: t.background, // mismo color que el fondo: el borde no se ve
+  scrollbarSliderBackground: t.accent,
+  scrollbarSliderHoverBackground: t.selection,
+  scrollbarSliderActiveBackground: t.muted
+})
+
 // Lo que el usuario puede cambiar en Ajustes, ya en el formato de xterm.
 type TermPrefs = Pick<
   Prefs,
-  'fontFamily' | 'fontSize' | 'lineHeight' | 'cursorStyle' | 'cursorBlink' | 'scrollback'
+  | 'fontFamily'
+  | 'fontSize'
+  | 'lineHeight'
+  | 'letterSpacing'
+  | 'fontWeight'
+  | 'minimumContrast'
+  | 'cursorStyle'
+  | 'cursorBlink'
+  | 'scrollback'
+  | 'smoothScroll'
+  | 'uiScale'
 >
-const termOptions = (p: TermPrefs, dark: boolean): ITerminalOptions => ({
-  theme: dark ? darkTheme : lightTheme,
+const termOptions = (p: TermPrefs, palette: Palette): ITerminalOptions => ({
+  theme: themeOf(palette),
   fontFamily: fontStack(p.fontFamily),
-  fontSize: p.fontSize,
+  // El tamaño de la interfaz no agranda el terminal: su letra tiene su propio ajuste.
+  fontSize: (p.fontSize * 100) / p.uiScale,
   lineHeight: p.lineHeight,
+  letterSpacing: p.letterSpacing,
+  fontWeight: p.fontWeight,
+  fontWeightBold: p.fontWeight === '300' ? '600' : 'bold',
+  minimumContrastRatio: p.minimumContrast,
   cursorStyle: p.cursorStyle,
   cursorBlink: p.cursorBlink,
-  scrollback: p.scrollback
+  scrollback: p.scrollback,
+  smoothScrollDuration: p.smoothScroll ? 120 : 0
 })
 
 export function TerminalPane({
@@ -101,12 +113,17 @@ export function TerminalPane({
     fontFamily: p.fontFamily,
     fontSize: p.fontSize,
     lineHeight: p.lineHeight,
+    letterSpacing: p.letterSpacing,
+    fontWeight: p.fontWeight,
+    minimumContrast: p.minimumContrast,
     cursorStyle: p.cursorStyle,
     cursorBlink: p.cursorBlink,
-    scrollback: p.scrollback
+    scrollback: p.scrollback,
+    smoothScroll: p.smoothScroll,
+    uiScale: p.uiScale
   }))
-  const dark = useDark()
-  const options = useMemo(() => termOptions(prefs, dark), [prefs, dark])
+  const palette = usePalette()
+  const options = useMemo(() => termOptions(prefs, palette), [prefs, palette])
   const initial = useRef(options)
   const refit = useRef(() => {})
 

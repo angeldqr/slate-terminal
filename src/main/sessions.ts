@@ -49,9 +49,60 @@ const defaultShell = ((): string => {
   }
 })()
 
+// Las shells instaladas que se pueden elegir en Ajustes para las terminales nuevas. Los agentes
+// siempre arrancan en la de por defecto: su orden de arranque está escrito para ella.
+type ShellChoice = { id: string; name: string; file: string; args: string[] }
+const has = (exe: string): boolean => {
+  try {
+    execFileSync(isWin ? 'where' : 'which', [exe], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}
+// ponytail: se detectan una vez por arranque; una shell instalada con Slate abierto aparece al
+// reabrirlo.
+let shells: ShellChoice[] | undefined
+export function listShells(): { id: string; name: string }[] {
+  shells ??= (
+    isWin
+      ? [
+          { id: 'pwsh', name: 'PowerShell 7', file: 'pwsh.exe', args: ['-NoLogo'] },
+          {
+            id: 'powershell',
+            name: 'Windows PowerShell',
+            file: 'powershell.exe',
+            args: ['-NoLogo']
+          },
+          { id: 'cmd', name: 'Símbolo del sistema', file: 'cmd.exe', args: [] },
+          {
+            id: 'gitbash',
+            name: 'Git Bash',
+            file: join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Git', 'bin', 'bash.exe'),
+            args: ['--login', '-i']
+          },
+          { id: 'wsl', name: 'WSL', file: 'wsl.exe', args: [] }
+        ]
+      : [
+          { id: 'bash', name: 'Bash', file: 'bash', args: ['-l'] },
+          { id: 'zsh', name: 'Zsh', file: 'zsh', args: ['-l'] },
+          { id: 'fish', name: 'Fish', file: 'fish', args: ['-l'] }
+        ]
+  ).filter((s) => (s.id === 'gitbash' ? existsSync(s.file) : has(s.file)))
+  return shells.map(({ id, name }) => ({ id, name }))
+}
+let shellChoice = 'auto'
+export const setShell = (id: unknown): void => void (shellChoice = String(id ?? 'auto'))
+
 // El agente corre dentro de la shell: al salir de él queda la shell en la misma carpeta.
 function launch(command?: string): [string, string[]] {
-  if (!command) return [defaultShell, isWin ? ['-NoLogo'] : ['-l']]
+  if (!command) {
+    // Con "Automática" no hace falta mirar qué hay instalado (son llamadas que bloquean).
+    if (shellChoice !== 'auto') listShells()
+    const chosen = shells?.find((s) => s.id === shellChoice)
+    if (chosen) return [chosen.file, chosen.args]
+    return [defaultShell, isWin ? ['-NoLogo'] : ['-l']]
+  }
   return isWin
     ? [defaultShell, ['-NoLogo', '-NoExit', '-Command', command]]
     : [defaultShell, ['-l', '-c', `${command}; exec ${defaultShell} -l`]]

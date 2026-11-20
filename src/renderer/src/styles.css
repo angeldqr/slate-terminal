@@ -133,6 +133,38 @@ body {
   mix-blend-mode: normal;
 }
 
+/* Tarjeta de un agente trabajando (tablero): un trazo de tiza recorre su borde. Con movimiento
+   reducido la animación dura 0 y queda un trazo quieto. */
+@property --beam {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+.beam::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--beam),
+    transparent 0 72%,
+    color-mix(in oklab, var(--foreground) 70%, transparent) 88%,
+    transparent 100%
+  );
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: beam 3.2s linear infinite;
+  pointer-events: none;
+}
+@keyframes beam {
+  to {
+    --beam: 360deg;
+  }
+}
+
 /* Zonas para arrastrar la ventana sin marco. */
 .drag {
   -webkit-app-region: drag;

@@ -59,3 +59,20 @@ export type Agent = {
 
 // Aviso del sistema; `id` es la sesión a la que lleva al pulsarlo ('' si no lleva a ninguna).
 export type Notice = { id: string; title: string; body: string; silent: boolean }
+
+// Estado de las actualizaciones (Ajustes › Actualizaciones). `unsupported`: sin instalar
+// (desarrollo), donde no hay de dónde actualizar.
+export type UpdateState = {
+  status:
+    | 'unsupported'
+    | 'idle'
+    | 'checking'
+    | 'current'
+    | 'available'
+    | 'downloading'
+    | 'ready'
+    | 'error'
+  version?: string
+  progress?: number
+  error?: string
+}

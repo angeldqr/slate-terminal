@@ -1,0 +1,43 @@
+# Cada push a develop publica una versión de Slate para Windows en GitHub Releases. Las copias
+# instaladas la encuentran en Ajustes › Actualizaciones.
+name: Publicar versión
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: write # crear la release y subir el instalador
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # No se publica nada que no pase el lint y las pruebas de lógica.
+      - run: npm run lint
+      - run: npm run check
+
+      # Cada publicación sube el número: 0.2.<ejecución>. Solo cambia en la CI, no en el repo.
+      - name: Número de versión
+        run: npm version "0.2.${{ github.run_number }}" --no-git-tag-version
+
+      - run: npm run build
+
+      - name: Instalador y release
+        run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

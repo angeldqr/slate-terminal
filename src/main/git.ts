@@ -158,11 +158,19 @@ export async function changes(cwd: string, from: string): Promise<FileChange[]> 
 }
 
 // El patch unificado de un archivo. Uno nuevo sin seguimiento se arma a mano: todo añadido.
-export async function fileDiff(cwd: string, from: string, path: string): Promise<string> {
+// Con `ignoreSpace`, los cambios que solo tocan espacios no aparecen (git diff -w).
+export async function fileDiff(
+  cwd: string,
+  from: string,
+  path: string,
+  ignoreSpace = false
+): Promise<string> {
   const tracked = (await git([...PLAIN, 'ls-files', '--', path], cwd)).trim() !== ''
   const inHistory =
     (await git([...PLAIN, 'ls-tree', '--name-only', from, '--', path], cwd)).trim() !== ''
-  if (tracked || inHistory) return git([...PLAIN, 'diff', ...READ, from, '--', path], cwd)
+  if (tracked || inHistory) {
+    return git([...PLAIN, 'diff', ...READ, ...(ignoreSpace ? ['-w'] : []), from, '--', path], cwd)
+  }
   const text = await untrackedText(cwd, path)
   if (!text) return ''
   const lines = text.split('\n')

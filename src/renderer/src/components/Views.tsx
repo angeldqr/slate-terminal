@@ -81,6 +81,7 @@ function PaneHeader({ id }: { id: string }): React.JSX.Element | null {
 
 function Pane({ id, multi }: { id: string; multi: boolean }): React.JSX.Element {
   const focused = useStore((s) => s.activeId === id)
+  const padding = useStore((s) => s.prefs.terminalPadding)
   return (
     // Capturar el clic antes que xterm: tocar un panel lo vuelve el activo.
     <div
@@ -88,7 +89,7 @@ function Pane({ id, multi }: { id: string; multi: boolean }): React.JSX.Element 
       onMouseDownCapture={() => !focused && selectSession(id)}
     >
       {multi && <PaneHeader id={id} />}
-      <div className="min-h-0 flex-1 p-2">
+      <div className="min-h-0 flex-1" style={{ padding }}>
         <TerminalPane sessionId={id} focused={focused} />
       </div>
     </div>

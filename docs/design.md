@@ -272,3 +272,36 @@ Lo recorrí con Windows-MCP sin enviar mensajes. Solo anoto lo que se ve; no se 
 - **Un solo Slate por carpeta de datos**: abrir otro trae al frente el que ya está. Si al abrir aparece un host de otra versión (tras actualizar), Slate pregunta si detenerlo con sus sesiones. En Ajustes › Avisos hay un botón para detener todas las sesiones.
 - **Hooks y MCP**: el servidor local conserva su puerto y su token entre arranques. Así un Claude Code que siguió vivo sigue avisando y usando sus herramientas.
 - **Windows**: el host se lanza con `Start-Process` (ShellExecute) para que no herede los handles de quien abrió Slate. Si los heredara, ese proceso (una terminal, `npm run dev`) creería que Slate sigue abierto.
+- **Registro**: el host arranca por una entrada mínima (`host.ts`) que deja en `host.log` cualquier fallo, incluso al cargar node-pty, y después carga el resto (`host-server.ts`).
+
+## 12. Personalización, tablero y actualizaciones (Fase 9)
+Referencia: los ajustes de T3 Code (MIT), leídos en su código (`apps/web/src/components/settings`) solo para entender qué ofrece. No se copia código.
+
+- **Lo observado en T3**:
+  - **Apariencia**: biblioteca de temas con miniaturas y un tema por cada mitad (claro y oscuro). Contraste, opacidad del vidrio, ancho del chat y duración de las animaciones de paneles.
+  - **Tipografía**: tamaños separados para la interfaz (12–20), el prompt, el código y los diffs (10–18) y el terminal (8–20). Familias elegidas entre las fuentes instaladas, ajuste de línea por defecto y suavizado.
+  - **Cada fila con un botón de restablecer** cuando su valor no es el de siempre.
+  - **Diffs**: apilado o lado a lado, ajuste de línea e ignorar espacios.
+  - **Actualizaciones**: electron-updater con GitHub Releases, por canales.
+- **Lo que Slate toma, a su manera**:
+  - **Temas grises** (`shared/palettes.ts`): Grafito, Carbón, Pizarra y Humo en oscuro; Tiza, Papel y Niebla en claro. Sigue siendo monocromo: el color solo marca estado. El modo Automático usa el elegido para cada mitad. Main pinta la ventana con el tema desde el primer frame.
+  - **Tamaño de la interfaz** con el zoom de Electron (85–130 %). El terminal compensa para conservar su propio tamaño de letra.
+  - **Terminal**:
+    - fuente entre las monoespaciadas instaladas (Local Font Access, pedida al abrir el selector);
+    - espacio entre letras, grosor y contraste mínimo;
+    - margen interior y desplazamiento suave;
+    - shell de las terminales nuevas (PowerShell 7, Windows PowerShell, cmd, Git Bash o WSL, según lo instalado). Los agentes siguen en PowerShell.
+  - **Cambios**: tamaño del código (13 px por defecto, antes 12), ajuste de línea, ignorar espacios (`git diff -w`) y ancho del panel, que se arrastra por su borde.
+  - **Restablecer por fila**, como en T3.
+- **Tablero** (`Ctrl Shift O`), al estilo de Herdr:
+  - todas las sesiones como tarjetas vivas, agrupadas por carpeta: estado y desde cuándo, rama, `+N −N`, la tarea y las últimas 9 líneas de su terminal (la pantalla espejo de main, cada segundo);
+  - filtros Todas, Trabajando, Te necesitan y Terminadas;
+  - las tarjetas de agentes trabajando llevan un trazo de tiza que recorre el borde;
+  - elegir una tarjeta abre esa sesión;
+  - en la cabecera de la barra lateral hay un indicador con cuántos trabajan y cuántos te necesitan, que abre el tablero.
+- **Varias tareas a la vez**: en Nueva tarea, `Ctrl Enter` (o el `+`) aparta la tarea escrita y `Enter` lanza todas. Cada una sale con los agentes elegidos en su propia rama, en su vista, y el tablero se abre para verlas trabajar.
+- **Actualizaciones**:
+  - `.github/workflows/release.yml` publica en GitHub Releases una versión `0.2.<ejecución>` con cada push a `develop`.
+  - Ajustes › Actualizaciones busca, descarga con progreso y reinicia para instalar.
+  - Antes de instalar se cierran las sesiones con calma, porque el instalador reemplaza también el ejecutable del host.
+  - Al abrir Slate se busca en silencio (se puede apagar). Nunca se instala sin pedirlo.

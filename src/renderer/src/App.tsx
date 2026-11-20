@@ -6,6 +6,8 @@ import { Sidebar } from './components/Sidebar'
 import { Views } from './components/Views'
 import { Overlays } from './components/Overlays'
 import { ChangesPanel } from './components/ChangesPanel'
+import { Board } from './components/Board'
+import { AnimatePresence } from 'motion/react'
 import { Keys } from './components/Keys'
 import { DottedGlowBackground } from './components/ui/dotted-glow-background'
 import { initMotion, reducedMotion } from './motion'
@@ -79,6 +81,11 @@ function App(): React.JSX.Element {
   const hasSessions = useStore((s) => s.sessions.length > 0)
   const sidebar = useStore((s) => s.sidebar)
   const pinnedBar = useStore((s) => s.prefs.pinTopBar)
+  const uiScale = useStore((s) => s.prefs.uiScale)
+  const board = useStore((s) => s.board)
+
+  // Tamaño de toda la interfaz; el terminal compensa para conservar su propio tamaño de letra.
+  useEffect(() => window.slate.app.setZoom(uiScale / 100), [uiScale])
 
   // Main ya pintó con el tema guardado; aquí se confirma con las preferencias y se sigue al sistema.
   useLayoutEffect(() => {
@@ -111,7 +118,11 @@ function App(): React.JSX.Element {
         >
           {/* El panel de cambios comparte la tarjeta: el terminal cede su ancho al abrirlo. */}
           <div className="flex h-full">
-            <div className="relative min-w-0 flex-1">{hasSessions ? <Views /> : <Empty />}</div>
+            <div className="relative min-w-0 flex-1">
+              {hasSessions ? <Views /> : <Empty />}
+              {/* Encima de las vistas, sin desmontarlas: los terminales siguen vivos debajo. */}
+              <AnimatePresence>{board && <Board />}</AnimatePresence>
+            </div>
             <ChangesPanel />
           </div>
         </main>

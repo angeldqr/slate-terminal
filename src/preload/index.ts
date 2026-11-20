@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, webFrame, type IpcRendererEvent } from 'electron'
 import type {
   Agent,
   Changes,
@@ -6,7 +6,8 @@ import type {
   SessionInfo,
   SessionKind,
   SessionOpts,
-  Status
+  Status,
+  UpdateState
 } from '../shared/types'
 
 // Suscribe a un canal y devuelve la función para dejar de escuchar.
@@ -27,6 +28,9 @@ const api = {
     // Cuántas volvieron del host al abrir Slate (solo la primera vez que se pregunta).
     restored: (): Promise<number> => ipcRenderer.invoke('sessions:restored'),
     buffer: (id: string): Promise<string> => ipcRenderer.invoke('sessions:buffer', id),
+    // Las últimas `lines` líneas de texto de cada sesión (para el tablero).
+    screens: (ids: string[], lines: number): Promise<Record<string, string>> =>
+      ipcRenderer.invoke('sessions:screens', ids, lines),
     rename: (id: string, title: string): Promise<void> =>
       ipcRenderer.invoke('sessions:rename', id, title),
     close: (id: string): Promise<void> => ipcRenderer.invoke('sessions:close', id),
@@ -44,8 +48,8 @@ const api = {
   git: {
     branch: (cwd: string): Promise<string | null> => ipcRenderer.invoke('git:branch', cwd),
     changes: (id: string): Promise<Changes | null> => ipcRenderer.invoke('git:changes', id),
-    fileDiff: (id: string, path: string): Promise<string> =>
-      ipcRenderer.invoke('git:fileDiff', id, path),
+    fileDiff: (id: string, path: string, ignoreSpace = false): Promise<string> =>
+      ipcRenderer.invoke('git:fileDiff', id, path, ignoreSpace),
     commit: (id: string, msg: string): Promise<boolean> =>
       ipcRenderer.invoke('git:commit', id, msg),
     merge: (id: string, msg: string): Promise<string> => ipcRenderer.invoke('git:merge', id, msg),
@@ -60,7 +64,17 @@ const api = {
   },
   app: {
     info: (): Promise<{ dataDir: string; host: boolean }> => ipcRenderer.invoke('app:info'),
-    openData: (): Promise<string> => ipcRenderer.invoke('app:openData')
+    openData: (): Promise<string> => ipcRenderer.invoke('app:openData'),
+    shells: (): Promise<{ id: string; name: string }[]> => ipcRenderer.invoke('shells:list'),
+    // Tamaño de toda la interfaz (1 = 100 %).
+    setZoom: (factor: number): void => webFrame.setZoomFactor(factor)
+  },
+  update: {
+    state: (): Promise<UpdateState> => ipcRenderer.invoke('update:state'),
+    check: (): void => ipcRenderer.send('update:check'),
+    download: (): void => ipcRenderer.send('update:download'),
+    install: (): void => ipcRenderer.send('update:install'),
+    onState: (fn: (state: UpdateState) => void) => on('update:state', fn)
   },
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:pickFolder'),
   notify: (notice: Notice): void => ipcRenderer.send('notify', notice),

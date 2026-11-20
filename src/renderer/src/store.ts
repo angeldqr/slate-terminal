@@ -1,5 +1,13 @@
 import { useRef, useSyncExternalStore } from 'react'
-import type { Agent, SessionInfo, SessionKind, SessionOpts, Status } from '../../shared/types'
+import type {
+  Agent,
+  FileChange,
+  SessionInfo,
+  SessionKind,
+  SessionOpts,
+  Status,
+  UpdateState
+} from '../../shared/types'
 import { DEFAULT_PREFS, type Prefs } from './prefs'
 import {
   leaves,
@@ -14,7 +22,10 @@ import {
 } from './layout'
 
 export type Project = { path: string; name: string; open: boolean }
-export type Session = SessionInfo & { unread: boolean }
+// `since`: cuándo entró en su estado actual (el tablero dice "trabajando desde hace 3 min").
+// ponytail: vive en el renderer; las sesiones que vuelven del host empiezan a contar al abrir
+// Slate. Guardarlo en el host si hace falta la edad real.
+export type Session = SessionInfo & { unread: boolean; since: number }
 // Una vista es lo que llena el área del terminal: una sesión sola o varias divididas.
 export type View = { id: string; layout: Layout }
 // Lo que flota sobre la ventana: la paleta de comandos, el menú de nueva sesión o los ajustes.
@@ -31,7 +42,9 @@ type State = {
   hint: string | null
   prefs: Prefs
   changes: boolean // panel de cambios abierto
+  board: boolean // tablero con todas las sesiones a la vista
   diffStats: Record<string, { add: number; del: number }> // último conteo por sesión
+  update: UpdateState
 }
 
 let state: State = {
@@ -45,7 +58,9 @@ let state: State = {
   hint: null,
   prefs: DEFAULT_PREFS,
   changes: false,
-  diffStats: {}
+  board: false,
+  diffStats: {},
+  update: { status: 'idle' }
 }
 const listeners = new Set<() => void>()
 
@@ -173,7 +188,7 @@ export async function init(): Promise<void> {
     prefs: { ...DEFAULT_PREFS, ...prefs },
     projects,
     agents,
-    sessions: sessions.map((s) => ({ ...s, unread: false })),
+    sessions: sessions.map((s) => ({ ...s, unread: false, since: Date.now() })),
     views,
     activeId: layout?.activeId && ids.includes(layout.activeId) ? layout.activeId : (ids[0] ?? null)
   })
@@ -198,7 +213,11 @@ export async function init(): Promise<void> {
     if (!current) return void early.set(id, status)
     const visible = viewOf(state, state.activeId) === viewOf(state, id)
     const unread = status === 'done' && (current.unread || !visible)
-    patchSession(id, { status, unread })
+    patchSession(id, {
+      status,
+      unread,
+      since: status === current.status ? current.since : Date.now()
+    })
     notifyIfAway(current, status)
   })
   // Al pulsar el aviso del sistema, Slate vuelve al frente con esa sesión.
@@ -206,7 +225,15 @@ export async function init(): Promise<void> {
     (id) => state.sessions.some((s) => s.id === id) && selectSession(id)
   )
   const offAdopted = slate.sessions.onAdopted(adoptSessions)
-  import.meta.hot?.dispose(() => (off(), offClick(), offAdopted()))
+  // Una versión nueva se anuncia una vez; el resto se ve en Ajustes › Actualizaciones.
+  slate.update.state().then((update) => setState({ update }))
+  const offUpdate = slate.update.onState((update) => {
+    if (update.status === 'available' && state.update.status !== 'available') {
+      flashHint(`Hay una versión nueva de Slate: ${update.version}`)
+    }
+    setState({ update })
+  })
+  import.meta.hot?.dispose(() => (off(), offClick(), offAdopted(), offUpdate()))
 }
 
 // Aviso del sistema cuando una sesión te necesita o termina mientras miras otra ventana.
@@ -274,7 +301,7 @@ export async function newSession(
   }
   const targetView = beside && viewOf(state, beside.id)
   setState({
-    sessions: [...state.sessions, { ...info, unread: false }],
+    sessions: [...state.sessions, { ...info, unread: false, since: Date.now() }],
     views: targetView
       ? patchView(targetView.id, (layout) => split(layout, beside.id, info.id, beside.dir))
       : [...state.views, newView(info.id)],
@@ -307,17 +334,35 @@ export function adoptSessions(infos: SessionInfo[], parent: string): void {
   setState({
     sessions: [
       ...state.sessions,
-      ...fresh.map((x) => ({ ...x, status: early.get(x.id) ?? x.status, unread: false }))
+      ...fresh.map((x) => ({
+        ...x,
+        status: early.get(x.id) ?? x.status,
+        unread: false,
+        since: Date.now()
+      }))
     ],
-    views: [...state.views, { id: crypto.randomUUID(), layout }]
+    views: [...state.views, { id: crypto.randomUUID(), layout }],
+    // Un agente que despliega a varios: el tablero los muestra arrancar (sin quitar el foco).
+    ...(fresh.length > 1 && { board: true })
   })
   fresh.forEach((x) => early.delete(x.id))
   const who = state.sessions.find((s) => s.id === parent)?.title ?? 'Un agente'
   flashHint(
-    fresh.length === 1
-      ? `${who} abrió ${fresh[0].title}`
-      : `${who} abrió ${fresh.length} sesiones en una vista nueva`
+    fresh.length === 1 ? `${who} abrió ${fresh[0].title}` : `${who} lanzó ${fresh.length} agentes`
   )
+}
+
+// Varias tareas a la vez: cada una en su vista, con sus agentes en rejilla, y el tablero se abre
+// para verlas arrancar. Se lanzan en orden; si una falla, las anteriores siguen.
+export async function launchTasks(
+  cwd: string,
+  prompts: string[],
+  kinds: SessionKind[],
+  isolate: boolean
+): Promise<void> {
+  // Copias de una sola tarea se comparan en su vista dividida; el tablero es para varias tareas.
+  if (prompts.length > 1) setState({ board: true })
+  for (const prompt of prompts) await launchTask(cwd, prompt, kinds, isolate)
 }
 
 export async function launchTask(
@@ -405,6 +450,20 @@ export function renameSession(id: string, title: string): void {
 
 export const toggleSidebar = (): void => setState({ sidebar: !state.sidebar })
 export const toggleChanges = (): void => setState({ changes: !state.changes })
+export const toggleBoard = (): void => setState({ board: !state.board })
+
+// Lo añadido o lo quitado en total, de una lista de archivos cambiados.
+export const sum = (files: FileChange[], key: 'add' | 'del'): number =>
+  files.reduce((total, f) => total + f[key], 0)
+
+// Te necesita: pide algo o falló.
+export const needsYou = (status: Status): boolean => status === 'attention' || status === 'error'
+
+// Desde el tablero: la sesión elegida pasa a la vista y el tablero se cierra.
+export function openFromBoard(id: string): void {
+  selectSession(id)
+  setState({ board: false })
+}
 
 export function setDiffStats(id: string, add: number, del: number): void {
   const prev = state.diffStats[id]

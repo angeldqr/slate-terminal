@@ -6,13 +6,21 @@ import {
   MinusIcon,
   SidebarSimpleIcon,
   SquareIcon,
+  SquaresFourIcon,
   XIcon
 } from '@phosphor-icons/react'
 import { cn } from '@renderer/lib/utils'
 import { openPalette } from '@renderer/overlays'
 import { shortcutKeys } from '@renderer/shortcuts'
 import { Keys } from './Keys'
-import { folderOf, samePath, toggleChanges, toggleSidebar, useStore } from '@renderer/store'
+import {
+  folderOf,
+  samePath,
+  toggleBoard,
+  toggleChanges,
+  toggleSidebar,
+  useStore
+} from '@renderer/store'
 
 const { win } = window.slate
 const HIDE_DELAY = 450 // margen para no esconderla al rozar el borde al pasar
@@ -94,6 +102,7 @@ export function TitleBar(): React.JSX.Element {
   const overlay = useStore((s) => !!s.overlay)
   const pinTopBar = useStore((s) => s.prefs.pinTopBar)
   const changesOpen = useStore((s) => s.changes)
+  const boardOpen = useStore((s) => s.board)
   const open = near || pinned || keyboardFocus || pinTopBar
 
   return (
@@ -151,6 +160,18 @@ export function TitleBar(): React.JSX.Element {
         </p>
 
         <div className="ml-auto flex items-center">
+          <button
+            onClick={toggleBoard}
+            aria-label="Mostrar u ocultar el tablero"
+            aria-pressed={boardOpen}
+            title={`Tablero (${shortcutKeys('board')})`}
+            className={cn(
+              'no-drag mr-0.5 grid size-7 place-items-center rounded-sm transition-colors duration-120 hover:bg-accent hover:text-foreground',
+              boardOpen ? 'bg-accent text-foreground' : 'text-muted-foreground'
+            )}
+          >
+            <SquaresFourIcon size={16} />
+          </button>
           <button
             onClick={toggleChanges}
             aria-label="Mostrar u ocultar los cambios"
