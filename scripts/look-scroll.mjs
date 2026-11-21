@@ -87,9 +87,10 @@ const rowNumbers = async (png) =>
   }, png.toString('base64'))
 
 // El historial se ve en orden: cada fila es la siguiente de la anterior, sin repetidas ni saltos.
-const inOrder = async (png, step) => {
+// `min`: al final de la pantalla puede quedar espacio vacío bajo la última fila tras ensanchar.
+const inOrder = async (png, step, min = 15) => {
   const rows = await rowNumbers(png)
-  assert.ok(rows.length >= 15, `${step}: se leen las filas (${rows.length})`)
+  assert.ok(rows.length >= min, `${step}: se leen las filas (${rows.length})`)
   rows
     .slice(1)
     .forEach((n, i) =>
@@ -162,6 +163,18 @@ try {
   }
   assert.ok(clip.width >= 120 && clip.height >= 250, 'hay espacio para comparar el historial')
   const shot = (name) => win.screenshot({ clip, path: join(captures, `${name}.png`) })
+  // Tras cambiar de tamaño, la shell y ConPTY tardan en repintar (más en la CI): se espera a que
+  // la pantalla deje de cambiar antes de leerla.
+  const stableShot = async (name) => {
+    let last = await shot(name)
+    for (let i = 0; i < 40; i++) {
+      await win.waitForTimeout(250)
+      const next = await shot(name)
+      if (next.equals(last)) return next
+      last = next
+    }
+    return last
+  }
   const scroll = async (delta) => {
     await win.mouse.move(clip.x + clip.width / 2, clip.y + clip.height / 2)
     await win.mouse.wheel(0, delta)
@@ -188,9 +201,9 @@ try {
   // Las referencias se toman desde el final (las últimas filas y un tramo más arriba): así no
   // dependen de cuántas filas vacías deja la línea de estado debajo.
   await bottom()
-  await inOrder(await shot('04-final-antes'), 'el final antes de abrir Cambios')
+  await inOrder(await stableShot('04-final-antes'), 'el final antes de abrir Cambios', 5)
   await scroll(-600)
-  await inOrder(await shot('04-tramo-antes'), 'un tramo antes de abrir Cambios')
+  await inOrder(await stableShot('04-tramo-antes'), 'un tramo antes de abrir Cambios')
   for (let round = 1; round <= 3; round++) {
     await win.keyboard.press('Control+Shift+G')
     const panel = win.getByRole('complementary', { name: 'Cambios' })
@@ -205,9 +218,9 @@ try {
     await win.waitForTimeout(400)
     assert.equal((await terminal.boundingBox()).width, width, 'sin Cambios, recupera su ancho')
     await bottom()
-    await inOrder(await shot(`06-final-tras-${round}`), `el final tras la vuelta ${round}`)
+    await inOrder(await stableShot(`06-final-tras-${round}`), `el final tras la vuelta ${round}`, 5)
     await scroll(-600)
-    await inOrder(await shot(`07-tramo-tras-${round}`), `el tramo tras la vuelta ${round}`)
+    await inOrder(await stableShot(`07-tramo-tras-${round}`), `el tramo tras la vuelta ${round}`)
   }
   const renderer = (await terminal.locator('canvas:not([class])').count()) ? 'WebGL' : 'DOM'
   console.log(`look:scroll: el historial vuelve intacto tras abrir y cerrar Cambios (${renderer})`)
