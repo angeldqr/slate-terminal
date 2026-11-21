@@ -113,6 +113,9 @@ const termOptions = (p: TermPrefs, palette: Palette): ITerminalOptions => ({
   smoothScrollDuration: p.smoothScroll ? 120 : 0
 })
 
+// El Windows en el que corre Slate (main lo pasa en la URL); 0 fuera de Windows.
+const WIN_BUILD = Number(new URLSearchParams(location.search).get('winbuild')) || 0
+
 export function TerminalPane({
   sessionId,
   focused,
@@ -151,6 +154,9 @@ export function TerminalPane({
     const term = new Terminal({
       ...initial.current,
       overviewRuler: { width: 6 }, // también fija el ancho de la barra de scroll (14px por defecto)
+      // Detrás hay ConPTY: sin esto xterm y ConPTY reacomodan las líneas a la vez al cambiar de
+      // tamaño y una TUI (Claude Code) acaba con filas duplicadas y letras mezcladas.
+      ...(WIN_BUILD && { windowsPty: { backend: 'conpty' as const, buildNumber: WIN_BUILD } }),
       allowProposedApi: true
     })
     const fit = new FitAddon()
@@ -205,16 +211,22 @@ export function TerminalPane({
 
     // Primero lo que ya imprimió y después lo nuevo: IPC entrega en orden, así no se duplica nada.
     let alive = true
+    // Mientras se reproduce lo ya impreso, xterm volvería a contestar consultas viejas (la de
+    // identificación que manda ConPTY al arrancar): esas respuestas no deben llegar a la shell.
+    let replaying = false
     let offData = (): void => {}
     document.fonts.ready.then(async () => {
       const past = await sessions.buffer(sessionId)
       if (!alive) return
-      term.write(past)
+      replaying = true
+      term.write(past, () => void (replaying = false))
       offData = sessions.onData(sessionId, (data) => term.write(data))
       resize()
     })
 
-    const input = term.onData((data) => sessions.write(sessionId, data))
+    const input = term.onData((data) => {
+      if (!replaying) sessions.write(sessionId, data)
+    })
     const selection = term.onSelectionChange(() => {
       const text = term.getSelection()
       if (text && getState().prefs.copyOnSelect) navigator.clipboard.writeText(text).catch(() => {})

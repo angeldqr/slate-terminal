@@ -245,10 +245,11 @@ Lo recorrí con Windows-MCP sin enviar mensajes. Solo anoto lo que se ve; no se 
 - **Se descarta**: el chat de T3 (Slate sigue siendo un terminal), el mini-mapa de turnos y el árbol de archivos (quizá más adelante).
 
 ## 9. Panel de cambios (Fase 5b)
-- **Lugar**: se superpone a la derecha del terminal dentro de la misma tarjeta, con 480 px de ancho
-  ajustable. Se abre con `Ctrl+Shift+G` o desde la barra superior. Abrir, cerrar o ensanchar Cambios
-  no altera las columnas del terminal: en Windows, redimensionarlo con una TUI activa podía
-  reescribir filas del historial mientras se hacía scroll.
+- **Lugar**: a la derecha del terminal, dentro de la misma tarjeta, con 480 px de ancho ajustable.
+  Se abre con `Ctrl+Shift+G` o desde la barra superior. Le quita su ancho al terminal de una vez,
+  y el terminal y la shell se acomodan a lo que queda. En Windows eso exige que xterm sepa que hay
+  ConPTY detrás (`windowsPty`) y usar la ConPTY que trae node-pty: sin ello, una TUI como Claude
+  Code acababa con filas duplicadas y letras mezcladas al cambiar de tamaño.
 - **Color**: `--added` (verde apagado `#8fbf7f`, `#3f7d3a` en claro) y `--removed` (el rojo de `--destructive`) son colores de estado, igual que el ámbar. Las líneas del diff llevan una barra de 2 px de ese color y un fondo al 10 %. El código se resalta con Shiki usando un tema propio en grises de tiza (peso y cursiva, sin color).
 - **Archivos**: plegados por defecto. La carpeta se recorta por el principio y el nombre queda entero. Al desplegarse crecen en altura con Motion (200 ms, la curva base).
 - **Acción principal dividida**: "Fusionar en <base>" (squash, un solo commit, sin créditos de agentes). En el menú: Crear PR (con `gh` o, sin él, la página "comparar" de GitHub), Solo hacer commit y Descartar rama, que pide un segundo clic.

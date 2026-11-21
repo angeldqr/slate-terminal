@@ -14,6 +14,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { hostPids } from './host-client'
 import { listProcesses, sumTree } from './processes'
 import { join } from 'node:path'
+import { release } from 'node:os'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { startHookServer } from './hooks'
@@ -166,7 +167,9 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
-  const query = { theme, palette: palette.id }
+  // En Windows, el número de compilación: xterm ajusta su reflujo a cómo redibuja ConPTY.
+  const query: Record<string, string> = { theme, palette: palette.id }
+  if (process.platform === 'win32') query.winbuild = release().split('.')[2] ?? ''
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}?${new URLSearchParams(query)}`)
   } else {

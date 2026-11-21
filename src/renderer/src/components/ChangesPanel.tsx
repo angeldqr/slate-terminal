@@ -593,9 +593,10 @@ function Actions({
   )
 }
 
-// Panel de cambios: a la derecha del terminal, lo que la sesión activa ha tocado.
-// Se superpone: incluso un solo cambio de columnas puede alterar el historial ANSI de una TUI al
-// combinar el reflujo de xterm con el redibujado de ConPTY. Cambios nunca redimensiona el terminal.
+// Panel de cambios: a la derecha del terminal, lo que la sesión activa ha tocado. Le quita su
+// ancho al terminal de una vez (sin animar el ancho: un solo reajuste de columnas), y el terminal
+// se acomoda a lo que queda. Con windowsPty y la ConPTY de node-pty, ese reajuste ya no mezcla
+// filas de una TUI.
 export function ChangesPanel(): React.JSX.Element {
   const open = useStore((s) => s.changes)
   const id = useStore((s) => s.activeId)
@@ -609,11 +610,8 @@ export function ChangesPanel(): React.JSX.Element {
     <aside
       aria-label="Cambios"
       inert={!open}
-      style={{ width }}
-      className={cn(
-        'absolute inset-y-0 right-0 z-20 max-w-full overflow-hidden',
-        !open && 'pointer-events-none'
-      )}
+      style={{ width: open ? width : 0 }}
+      className={cn('relative shrink-0 overflow-hidden', !open && 'pointer-events-none')}
     >
       {open && (
         <ResizeHandle

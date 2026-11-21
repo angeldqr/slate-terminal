@@ -822,7 +822,8 @@ await shot2('cambios-diff')
 await first.locator('nav').getByText('+1', { exact: true }).waitFor({ timeout: 5000 })
 console.log('· panel de cambios: archivo nuevo, diff y conteo en la barra lateral')
 
-// Cambios se superpone al terminal sin renegociar sus columnas con la shell.
+// Cambios le quita su ancho al terminal y la shell se entera: el texto se acomoda a lo que queda
+// a la vista, y al cerrarlo vuelve. La salida se conserva en los dos sentidos.
 const resizeMarker = 'slate-refit-estable'
 await first.evaluate(
   ({ id, marker }) => window.slate.sessions.write(id, `Write-Output '${marker}'\r`),
@@ -855,11 +856,31 @@ const terminalWidth = () =>
         ?.getBoundingClientRect().width ?? 0
   )
 const stableWidth = await terminalWidth()
+// Las columnas que cree tener la shell (PowerShell las informa con [Console]::WindowWidth).
+const shellCols = async () => {
+  const marker = `cols${Date.now()}`
+  await first.evaluate(
+    ({ id, marker }) =>
+      window.slate.sessions.write(id, `Write-Output "${marker}=$([Console]::WindowWidth)"\r`),
+    { id: third.id, marker }
+  )
+  for (let i = 0; i < 40; i++) {
+    const text = await first.evaluate(({ id }) => window.slate.sessions.buffer(id), {
+      id: third.id
+    })
+    const m = new RegExp(`${marker}=(\\d+)`).exec(text)
+    if (m) return Number(m[1])
+    await first.waitForTimeout(100)
+  }
+  return 0
+}
+const openCols = await shellCols()
 const panelClose = panel.getByRole('button', { name: 'Cerrar cambios' })
 for (let i = 0; i < 3; i++) {
   await first.keyboard.press('Control+Shift+G')
   await panelClose.waitFor({ state: 'detached' })
-  assert.equal(await terminalWidth(), stableWidth, 'el terminal mantiene sus columnas al cerrar')
+  await first.waitForTimeout(350)
+  assert.ok((await terminalWidth()) > stableWidth, 'al cerrar, el terminal recupera el ancho')
   assert.equal(await bufferedMarker(), true, 'la salida se conserva al cerrar Cambios')
   assert.equal(await validCanvas(), true, 'el canvas conserva un tamaño válido al cerrar')
   await first.mouse.move(370, 200)
@@ -868,12 +889,20 @@ for (let i = 0; i < 3; i++) {
   await panelClose.waitFor()
   await first.waitForTimeout(350)
   assert.equal(await panel.evaluate((el) => el.getBoundingClientRect().width), 480)
-  assert.equal(await terminalWidth(), stableWidth, 'el terminal mantiene sus columnas al abrir')
+  assert.equal(await terminalWidth(), stableWidth, 'al abrir, vuelve al ancho que deja Cambios')
   assert.equal(await bufferedMarker(), true, 'la salida se conserva al abrir Cambios')
   assert.equal(await validCanvas(), true, 'el canvas conserva un tamaño válido al abrir')
 }
+assert.equal(await shellCols(), openCols, 'la shell tiene las mismas columnas que se ven')
+await first.keyboard.press('Control+Shift+G')
+await panelClose.waitFor({ state: 'detached' })
+await first.waitForTimeout(350)
+assert.ok((await shellCols()) > openCols, 'sin Cambios, la shell gana columnas')
+await first.keyboard.press('Control+Shift+G')
+await panelClose.waitFor()
+await first.waitForTimeout(350)
 await shot2('cambios-refit')
-console.log('· Cambios se abre y cierra: el terminal conserva sus dimensiones y su salida')
+console.log('· Cambios le quita ancho al terminal y la shell lo sabe; la salida se conserva')
 
 // Alcances y vista de árbol del panel.
 await panel.getByRole('tab', { name: 'Toda la rama' }).focus()

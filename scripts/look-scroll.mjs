@@ -62,6 +62,42 @@ const sameHistory = async (expected, actual, step) => {
   )
 }
 
+// Los números de fila que se ven en una captura, leídos de la banda de color de cada una.
+const rowNumbers = async (png) =>
+  app.evaluate(({ nativeImage }, data) => {
+    const img = nativeImage.createFromBuffer(Buffer.from(data, 'base64'))
+    const { width, height } = img.getSize()
+    const px = img.toBitmap() // BGRA
+    const x = Math.min(4, width - 1)
+    const runs = []
+    for (let y = 0; y < height; y++) {
+      const i = (y * width + x) * 4
+      const color = [px[i + 2], px[i + 1], px[i]].join(',')
+      if (runs.length && runs[runs.length - 1].color === color) runs[runs.length - 1].n++
+      else runs.push({ color, n: 1 })
+    }
+    const decode = (v) => ((v - 32) % 24 === 0 && v >= 32 && v <= 200 ? (v - 32) / 24 : -1)
+    return runs
+      .filter((r) => r.n >= 5)
+      .map((r) => {
+        const [red, green, blue] = r.color.split(',').map(Number).map(decode)
+        return red < 0 || green < 0 || blue < 0 ? null : red + green * 8 + blue * 64
+      })
+      .filter((n) => n !== null && n > 0)
+  }, png.toString('base64'))
+
+// El historial se ve en orden: cada fila es la siguiente de la anterior, sin repetidas ni saltos.
+const inOrder = async (png, step) => {
+  const rows = await rowNumbers(png)
+  assert.ok(rows.length >= 15, `${step}: se leen las filas (${rows.length})`)
+  rows
+    .slice(1)
+    .forEach((n, i) =>
+      assert.equal(n, rows[i] + 1, `${step}: tras la fila ${rows[i]} viene la ${n}`)
+    )
+  return rows
+}
+
 try {
   mkdirSync(repo)
   mkdirSync(bin)
@@ -142,35 +178,39 @@ try {
   await scroll(600)
   await sameHistory(historyA, await shot('03-vuelta'), 'volver con Cambios cerrado')
 
-  await win.keyboard.press('Control+Shift+G')
-  const panel = win.getByRole('complementary', { name: 'Cambios' })
-  await panel.getByRole('button', { name: /diff\.txt/ }).waitFor()
-  await win.waitForTimeout(350)
-  const opened = await shot('04-cambios-abierto')
-  const openedWidth = (await terminal.boundingBox()).width
+  // Cambios le quita ancho al terminal: las líneas largas se reacomodan mientras está abierto. Al
+  // cerrarlo, el historial tiene que volver exactamente igual: ni filas duplicadas ni mezcladas.
+  const bottom = async () => {
+    await win.mouse.move(clip.x + clip.width / 2, clip.y + clip.height / 2)
+    for (let i = 0; i < 30; i++) await win.mouse.wheel(0, 2000) // una rueda enorme sola no llega al final
+    await win.waitForTimeout(250)
+  }
+  // Las referencias se toman desde el final (las últimas filas y un tramo más arriba): así no
+  // dependen de cuántas filas vacías deja la línea de estado debajo.
+  await bottom()
+  await inOrder(await shot('04-final-antes'), 'el final antes de abrir Cambios')
   await scroll(-600)
-  const scrolled = await shot('05-scroll-con-cambios')
-  await win.keyboard.press('Control+Shift+G')
-  await win.waitForTimeout(350)
-  const closed = await shot('06-cambios-cerrado')
-  await scroll(600)
-  const returned = await shot('07-historial-final')
-  await sameHistory(historyA, opened, 'abrir Cambios')
-  assert.equal(openedWidth, width, 'Cambios no debe renegociar las columnas con el agente')
-  await sameHistory(historyB, scrolled, 'hacer scroll con Cambios abierto')
-  await sameHistory(historyB, closed, 'cerrar Cambios')
-  await sameHistory(historyA, returned, 'regresar al tramo original')
-  await win.keyboard.press('Control+Shift+G')
-  const handle = panel.getByRole('separator', { name: 'Ancho del panel de cambios' })
-  const originalPanel = (await panel.boundingBox()).width
-  await handle.press('ArrowLeft')
-  assert.ok((await panel.boundingBox()).width > originalPanel, 'el divisor ensancha solo el panel')
-  assert.equal((await terminal.boundingBox()).width, width)
-  await win.waitForTimeout(350)
-  await sameHistory(historyA, await shot('08-panel-mas-ancho'), 'ensanchar Cambios')
-  await win.screenshot({ path: join(captures, '09-panel-y-terminal.png') })
+  await inOrder(await shot('04-tramo-antes'), 'un tramo antes de abrir Cambios')
+  for (let round = 1; round <= 3; round++) {
+    await win.keyboard.press('Control+Shift+G')
+    const panel = win.getByRole('complementary', { name: 'Cambios' })
+    await panel.getByRole('button', { name: /diff\.txt/ }).waitFor()
+    await win.waitForTimeout(400)
+    assert.ok(
+      (await terminal.boundingBox()).width < width,
+      'con Cambios, el terminal es más estrecho'
+    )
+    await win.screenshot({ path: join(captures, `05-cambios-abierto-${round}.png`) })
+    await win.keyboard.press('Control+Shift+G')
+    await win.waitForTimeout(400)
+    assert.equal((await terminal.boundingBox()).width, width, 'sin Cambios, recupera su ancho')
+    await bottom()
+    await inOrder(await shot(`06-final-tras-${round}`), `el final tras la vuelta ${round}`)
+    await scroll(-600)
+    await inOrder(await shot(`07-tramo-tras-${round}`), `el tramo tras la vuelta ${round}`)
+  }
   const renderer = (await terminal.locator('canvas:not([class])').count()) ? 'WebGL' : 'DOM'
-  console.log(`look:scroll: filas y dibujo del historial conservados con renderer ${renderer}`)
+  console.log(`look:scroll: el historial vuelve intacto tras abrir y cerrar Cambios (${renderer})`)
 } finally {
   await app?.close()
   rmSync(data, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 })

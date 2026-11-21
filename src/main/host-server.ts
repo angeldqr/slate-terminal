@@ -54,13 +54,25 @@ function checkIdle(): void {
 }
 
 function spawn(id: string, req: Extract<ToHost, { t: 'spawn' }>['req'], meta: Meta): void {
-  const proc = pty.spawn(req.file, req.args, {
+  const options = {
     name: 'xterm-256color',
     cols: req.cols,
     rows: req.rows,
     cwd: req.cwd,
     env: req.env
-  })
+  }
+  // En Windows se usa la ConPTY que trae node-pty (la misma de Windows Terminal): la del sistema
+  // redibuja la pantalla al cambiar de tamaño y, con una TUI como Claude Code, duplica y mezcla
+  // filas. Si no carga, se usa la del sistema.
+  let proc: pty.IPty
+  try {
+    proc = pty.spawn(req.file, req.args, {
+      ...options,
+      ...(process.platform === 'win32' && { useConptyDll: true })
+    })
+  } catch {
+    proc = pty.spawn(req.file, req.args, options)
+  }
   const s: Session = { id, proc, buffer: '', meta, exited: false, cols: req.cols, rows: req.rows }
   sessions.set(id, s)
   proc.onData((data) => {
