@@ -1,5 +1,6 @@
 import { connect, createServer, type Socket } from 'node:net'
-import { readFileSync, rmSync } from 'node:fs'
+import { appendFileSync, readFileSync, rmSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import * as pty from 'node-pty'
 import {
   PROTOCOL,
@@ -10,6 +11,18 @@ import {
   type Meta,
   type ToHost
 } from './host-protocol'
+
+// Un aviso en host.log (junto al token), sin cortar nada: para lo que se degrada sin fallar.
+const note = (text: string): void => {
+  try {
+    appendFileSync(
+      join(dirname(process.argv[3] ?? '.'), 'host.log'),
+      `${new Date().toISOString()} ${text}\n`
+    )
+  } catch {
+    // sin registro no se pierde nada importante
+  }
+}
 
 // Host de sesiones: un proceso aparte que mantiene vivas las terminales aunque Slate se cierre.
 // ponytail: la tubería tiene un nombre predecible y la ACL por defecto de Windows; otro usuario
@@ -70,7 +83,10 @@ function spawn(id: string, req: Extract<ToHost, { t: 'spawn' }>['req'], meta: Me
       ...options,
       ...(process.platform === 'win32' && { useConptyDll: true })
     })
-  } catch {
+  } catch (err) {
+    note(
+      `ConPTY de node-pty no disponible, se usa la del sistema: ${(err as Error)?.message ?? err}`
+    )
     proc = pty.spawn(req.file, req.args, options)
   }
   const s: Session = { id, proc, buffer: '', meta, exited: false, cols: req.cols, rows: req.rows }

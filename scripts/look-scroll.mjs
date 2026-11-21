@@ -1,7 +1,7 @@
 // Compara los píxeles reales del historial, sin usar una sesión de usuario ni gastar tokens.
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join, resolve } from 'node:path'
 import { _electron as electron } from 'playwright'
@@ -152,6 +152,24 @@ try {
   for (let i = 0; i < 60 && !(await hasOutput()); i++) await win.waitForTimeout(100)
   assert.ok(await hasOutput(), 'la interfaz ANSI arrancó dentro de la sesión de Claude')
   await win.evaluate(() => document.fonts.ready.then(() => undefined))
+  // Qué ConPTY hay detrás: la de node-pty corre su OpenConsole.exe; la del sistema, no.
+  if (process.platform === 'win32') {
+    const consoles = execFileSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-Command',
+        'Get-CimInstance Win32_Process -Filter "Name=\'OpenConsole.exe\'" | ForEach-Object { $_.ExecutablePath }'
+      ],
+      { encoding: 'utf8' }
+    )
+      .split(/\r?\n/)
+      .filter((path) => path && !/stepbro/i.test(path))
+    // La del sistema pierde filas al cambiar el ancho: Slate tiene que usar la de node-pty
+    // (ver scripts/conpty-dll.mjs y el aviso de host.log).
+    assert.ok(consoles.length, 'Slate usa la ConPTY de node-pty, no la del sistema')
+    console.log(`look:scroll: ConPTY de node-pty (${consoles.length} OpenConsole.exe)`)
+  }
 
   const { x, y, width, height } = await terminal.boundingBox()
   // Solo compara la región que queda visible a la izquierda, incluso con el panel ensanchado.
@@ -225,6 +243,8 @@ try {
   const renderer = (await terminal.locator('canvas:not([class])').count()) ? 'WebGL' : 'DOM'
   console.log(`look:scroll: el historial vuelve intacto tras abrir y cerrar Cambios (${renderer})`)
 } finally {
+  const hostLog = join(data, 'host.log')
+  if (existsSync(hostLog)) console.log(`host.log:\n${readFileSync(hostLog, 'utf8')}`)
   await app?.close()
   rmSync(data, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 })
 }
