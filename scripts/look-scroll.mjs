@@ -126,29 +126,36 @@ try {
     JSON.stringify({
       notify: false,
       autoUpdate: false,
-      keepAlive: false,
+      keepAlive: true, // al final se reabre Slate con la sesión viva
       cursorBlink: false,
       smoothScroll: false
     })
   )
-  app = await electron.launch({
-    executablePath,
-    env,
-    args: [...(executablePath ? [] : ['.']), `--user-data-dir=${data}`]
-  })
-  const win = await app.firstWindow()
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1200, 760))
+  const open = async () => {
+    app = await electron.launch({
+      executablePath,
+      env,
+      args: [...(executablePath ? [] : ['.']), `--user-data-dir=${data}`]
+    })
+    const page = await app.firstWindow()
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1200, 760))
+    return page
+  }
+  let win = await open()
   await win.getByText('repo', { exact: true }).click({ button: 'right' })
   await win.getByRole('menuitem', { name: 'Claude Code' }).click()
-  const terminal = win.locator('.xterm-screen:visible')
+  let terminal = win.locator('.xterm-screen:visible')
   await terminal.waitFor()
   const id = await win.evaluate(() => window.slate.sessions.list().then(([session]) => session.id))
   const command = `& ${quote(process.execPath)} ${quote(resolve('scripts/fixtures/terminal-scroll.mjs'))}\r`
   await win.evaluate(({ id, command }) => window.slate.sessions.write(id, command), { id, command })
   const hasOutput = async () =>
-    (await win.evaluate((id) => window.slate.sessions.buffer(id), id)).includes(
-      'slate-scroll-listo'
-    )
+    (
+      await win.evaluate(
+        (id) => window.slate.sessions.buffer(id).then((shot) => shot?.data ?? ''),
+        id
+      )
+    ).includes('slate-scroll-listo')
   for (let i = 0; i < 60 && !(await hasOutput()); i++) await win.waitForTimeout(100)
   assert.ok(await hasOutput(), 'la interfaz ANSI arrancó dentro de la sesión de Claude')
   await win.evaluate(() => document.fonts.ready.then(() => undefined))
@@ -180,14 +187,19 @@ try {
     height: Math.min(520, Math.floor(height - 4))
   }
   assert.ok(clip.width >= 120 && clip.height >= 250, 'hay espacio para comparar el historial')
-  const shot = (name) => win.screenshot({ clip, path: join(captures, `${name}.png`) })
+  const shot = (name, area = clip) =>
+    win.screenshot({ clip: area, path: join(captures, `${name}.png`) })
+  // El pie del terminal: ahí repintan la shell y ConPTY, y ahí se mezclaban las letras al reabrir.
+  // Empieza unos píxeles a la derecha (aún dentro de la banda de color): en la primera celda
+  // Chromium dibuja o no el cursor del campo de texto de xterm según el foco.
+  const foot = { ...clip, x: clip.x + 8, y: Math.floor(y + height - 262), height: 260 }
   // Tras cambiar de tamaño, la shell y ConPTY tardan en repintar (más en la CI): se espera a que
   // la pantalla deje de cambiar antes de leerla.
-  const stableShot = async (name) => {
-    let last = await shot(name)
+  const stableShot = async (name, area) => {
+    let last = await shot(name, area)
     for (let i = 0; i < 40; i++) {
       await win.waitForTimeout(250)
-      const next = await shot(name)
+      const next = await shot(name, area)
       if (next.equals(last)) return next
       last = next
     }
@@ -242,9 +254,37 @@ try {
   }
   const renderer = (await terminal.locator('canvas:not([class])').count()) ? 'WebGL' : 'DOM'
   console.log(`look:scroll: el historial vuelve intacto tras abrir y cerrar Cambios (${renderer})`)
+
+  // Slate se cierra con la sesión viva en el host y vuelve: la salida se imprimió a varios anchos,
+  // pero el terminal tiene que repintarse tal como estaba, no con las letras mezcladas.
+  await bottom()
+  const before = await inOrder(await stableShot('08-final-antes-de-reabrir'), 'antes de reabrir', 5)
+  const footBefore = await stableShot('08-pie-antes-de-reabrir', foot)
+  await app.close()
+  win = await open()
+  terminal = win.locator('.xterm-screen:visible')
+  await terminal.waitFor()
+  await win.evaluate(() => document.fonts.ready.then(() => undefined))
+  await terminal.click() // con el foco, como antes de cerrar: el cursor se dibuja igual
+  await bottom()
+  const after = await inOrder(await stableShot('09-final-reabierto'), 'al reabrir', 5)
+  assert.deepEqual(after, before, 'al reabrir se ven las mismas filas que antes de cerrar')
+  await sameHistory(footBefore, await stableShot('09-pie-reabierto', foot), 'el pie al reabrir')
+  await scroll(-600)
+  await inOrder(await stableShot('10-tramo-reabierto'), 'un tramo al reabrir')
+  console.log('look:scroll: al reabrir Slate, la sesión vuelve igual que estaba')
 } finally {
   const hostLog = join(data, 'host.log')
   if (existsSync(hostLog)) console.log(`host.log:\n${readFileSync(hostLog, 'utf8')}`)
+  // La sesión siguió viva para reabrir: se cierra para que el host termine.
+  await app
+    ?.windows()[0]
+    ?.evaluate(() =>
+      window.slate.sessions
+        .list()
+        .then((list) => Promise.all(list.map((s) => window.slate.sessions.close(s.id))))
+    )
+    .catch(() => {})
   await app?.close()
   rmSync(data, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 })
 }

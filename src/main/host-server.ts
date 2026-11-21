@@ -11,6 +11,7 @@ import {
   type Meta,
   type ToHost
 } from './host-protocol'
+import { createMirror, type Mirror } from './mirror'
 
 // Un aviso en host.log (junto al token), sin cortar nada: para lo que se degrada sin fallar.
 const note = (text: string): void => {
@@ -34,7 +35,6 @@ const note = (text: string): void => {
 
 const [pipe, tokenFile] = process.argv.slice(2)
 const token = readFileSync(tokenFile, 'utf8').trim()
-const MAX_BUFFER = 256 * 1024 // lo mismo que guardaba Slate: lo que se repinta al volver
 // Sin Slate conectado: si no queda ninguna sesión, el host se va enseguida; si solo quedan
 // terminadas, las guarda un rato para que Slate muestre cómo acabaron al volver.
 const EMPTY_EXIT_MS = 10_000
@@ -43,7 +43,7 @@ const DEAD_EXIT_MS = 60 * 60_000
 type Session = {
   id: string
   proc: pty.IPty
-  buffer: string
+  screen: Mirror // lo que se repinta cuando Slate vuelve
   meta: Meta
   exited: boolean
   cols: number
@@ -89,10 +89,18 @@ function spawn(id: string, req: Extract<ToHost, { t: 'spawn' }>['req'], meta: Me
     )
     proc = pty.spawn(req.file, req.args, options)
   }
-  const s: Session = { id, proc, buffer: '', meta, exited: false, cols: req.cols, rows: req.rows }
+  const s: Session = {
+    id,
+    proc,
+    screen: createMirror(req.cols, req.rows),
+    meta,
+    exited: false,
+    cols: req.cols,
+    rows: req.rows
+  }
   sessions.set(id, s)
   proc.onData((data) => {
-    s.buffer = (s.buffer + data).slice(-MAX_BUFFER)
+    s.screen.write(data)
     tell({ t: 'data', id, data })
   })
   proc.onExit(() => {
@@ -119,11 +127,13 @@ function handle(msg: ToHost): void {
     case 'resize':
       if (!s || s.exited || msg.cols <= 0 || msg.rows <= 0) return
       s.proc.resize(msg.cols, msg.rows)
+      s.screen.term.resize(msg.cols, msg.rows)
       s.cols = msg.cols
       s.rows = msg.rows
       return
     case 'kill':
       if (s && !s.exited) s.proc.kill()
+      s?.screen.term.dispose()
       sessions.delete(msg.id)
       checkIdle()
       return
@@ -131,18 +141,15 @@ function handle(msg: ToHost): void {
       if (s) s.meta = { ...s.meta, ...msg.meta }
       return
     case 'list': {
-      const list: HostSession[] = [...sessions.values()].map(
-        ({ id, meta, buffer, exited, cols, rows, proc }) => ({
-          id,
-          meta,
-          buffer,
-          exited,
-          cols,
-          rows,
-          pid: proc.pid
+      const { rid, screens } = msg
+      Promise.all(
+        [...sessions.values()].map(async ({ id, meta, screen, exited, cols, rows, proc }) => {
+          const base: HostSession = { id, meta, exited, cols, rows, pid: proc.pid }
+          if (!screens) return base
+          const shot = await screen.snapshot()
+          return { ...base, screen: shot.data, cols: shot.cols, rows: shot.rows }
         })
-      )
-      tell({ t: 'list', rid: msg.rid, sessions: list, hostPid: process.pid })
+      ).then((list) => tell({ t: 'list', rid, sessions: list, hostPid: process.pid }))
       return
     }
     case 'shutdown':

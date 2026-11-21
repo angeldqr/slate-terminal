@@ -831,7 +831,8 @@ await first.evaluate(
 )
 const bufferedMarker = () =>
   first.evaluate(
-    ({ id, marker }) => window.slate.sessions.buffer(id).then((text) => text.includes(marker)),
+    ({ id, marker }) =>
+      window.slate.sessions.buffer(id).then((shot) => !!shot?.data.includes(marker)),
     { id: third.id, marker: resizeMarker }
   )
 const validCanvas = () =>
@@ -926,7 +927,10 @@ assert.equal(
 )
 await first.waitForTimeout(800)
 assert.match(
-  await first.evaluate(({ id }) => window.slate.sessions.buffer(id), { id: third.id }),
+  await first.evaluate(
+    ({ id }) => window.slate.sessions.buffer(id).then((shot) => shot?.data ?? ''),
+    { id: third.id }
+  ),
   /comentario-del-panel/,
   'el comentario llegó al terminal'
 )
@@ -1103,7 +1107,15 @@ console.log('· con la bandeja, cerrar solo esconde la ventana; salir con sesion
 // waitForFunction no espera a funciones async: se sondea a mano.
 const output = async (w, id, text) => {
   for (let i = 0; i < 70; i++) {
-    if ((await w.evaluate((x) => window.slate.sessions.buffer(x), id)).includes(text)) return
+    if (
+      (
+        await w.evaluate(
+          (x) => window.slate.sessions.buffer(x).then((shot) => shot?.data ?? ''),
+          id
+        )
+      ).includes(text)
+    )
+      return
     await w.waitForTimeout(150)
   }
   throw new Error(`no salió "${text.trim()}" en la sesión`)
@@ -1140,7 +1152,12 @@ assert.ok(
 )
 assert.equal(await bw.locator('.xterm-screen:visible').count(), 2, 'vuelven divididas como estaban')
 assert.ok(
-  (await bw.evaluate((id) => window.slate.sessions.buffer(id), kept.id)).includes('antes-de-cerrar')
+  (
+    await bw.evaluate(
+      (id) => window.slate.sessions.buffer(id).then((shot) => shot?.data ?? ''),
+      kept.id
+    )
+  ).includes('antes-de-cerrar')
 )
 await bw.evaluate((id) => window.slate.sessions.write(id, 'echo despues-de-volver\r'), kept.id)
 await output(bw, kept.id, 'despues-de-volver\r\n')

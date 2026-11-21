@@ -3,7 +3,6 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, relative } from 'node:path'
 import { app } from 'electron'
-import { Terminal } from '@xterm/headless'
 import { AGENTS } from './agents'
 import { nextStatus, type StatusEvent } from './status'
 import type {
@@ -17,20 +16,19 @@ import { writeHookSettings, removeHookSettings, writeMcpConfig } from './hooks'
 import { freeTitle, samePath } from './titles'
 import { createWorktree, removeWorktree, repoRoot, slug, worktreeNames } from './git'
 import { listRemote, RemotePty, setMeta, spawnRemote } from './host-client'
+import { createMirror, type Mirror } from './mirror'
 
 // La pty vive en el host de sesiones (host.ts): sobrevive al cierre de Slate.
 type Session = SessionInfo & {
   pty: RemotePty
-  buffer: string
   quiet?: NodeJS.Timeout
-  // Una copia de lo que se ve en su terminal, para que otro agente pueda leerla tal cual.
-  screen: Terminal
+  // Una copia de lo que se ve en su terminal: otro agente la lee y el renderer la repinta al montar.
+  screen: Mirror
   // Quien espera un cambio de estado (wait_for_status del MCP).
   waiters: Set<() => void>
 }
 
 const sessions = new Map<string, Session>()
-const MAX_BUFFER = 256 * 1024 // lo que se le devuelve al renderer si se recarga
 const QUIET_MS = 1500 // silencio que cuenta como "terminó" en agentes sin hooks
 
 let send: (channel: string, ...args: unknown[]) => void = () => {}
@@ -39,16 +37,20 @@ export const onSessionEvent = (fn: typeof send): void => void (send = fn)
 export const emit = (channel: string, ...args: unknown[]): void => send(channel, ...args)
 
 // La salida de todas las sesiones viaja junta cada ~6 ms (menos de un frame): un agente que
-// imprime a ráfagas no satura el IPC con miles de mensajes pequeños.
+// imprime a ráfagas no satura el IPC con miles de mensajes pequeños. El primer trozo tras una
+// pausa sale en el acto: el eco de una tecla no espera al lote.
 const pending = new Map<string, string>()
-let flushTimer: ReturnType<typeof setTimeout> | undefined
+let batch: ReturnType<typeof setTimeout> | undefined
 function queueData(id: string, data: string): void {
   pending.set(id, (pending.get(id) ?? '') + data)
-  flushTimer ??= setTimeout(flushData, 6)
+  if (batch) return
+  flushData()
+  batch = setTimeout(() => {
+    batch = undefined
+    flushData()
+  }, 6)
 }
 function flushData(): void {
-  clearTimeout(flushTimer)
-  flushTimer = undefined
   if (!pending.size) return
   send('session:data', Object.fromEntries(pending))
   pending.clear()
@@ -250,31 +252,29 @@ export async function createSession(
     if (worktree) await removeWorktree(worktree.root, worktree).catch(() => {})
     throw err
   }
-  const s = adopt(base, proc, '')
+  const s = adopt(base, proc)
   return info(s)
 }
 
-// Pone en marcha lo que Slate hace con una sesión: su pantalla espejo (con lo que ya imprimió,
-// si viene del host), los estados según su salida y la limpieza al terminar.
+// Pone en marcha lo que Slate hace con una sesión: su pantalla espejo (con lo que ya se veía, si
+// viene del host), los estados según su salida y la limpieza al terminar.
 function adopt(
   base: SessionInfo,
   proc: RemotePty,
-  buffer: string,
+  past = '',
   size = { cols: 100, rows: 30 }
 ): Session {
   const { id, kind, hooked } = base
   const s: Session = {
     ...base,
     pty: proc,
-    buffer,
-    screen: new Terminal({ ...size, scrollback: 2000, allowProposedApi: true }),
+    screen: createMirror(size.cols, size.rows),
     waiters: new Set()
   }
-  if (buffer) s.screen.write(buffer)
+  if (past) s.screen.write(past)
   sessions.set(id, s)
 
   proc.onData((data) => {
-    s.buffer = (s.buffer + data).slice(-MAX_BUFFER)
     if (sessions.has(id)) s.screen.write(data)
     queueData(id, data)
     const bell = NOTIFY.test(data) || data.replace(OSC, '').includes('\x07')
@@ -304,7 +304,7 @@ export async function restoreSessions(): Promise<number> {
     // Mientras Slate estaba cerrado sus hooks no llegaron: "trabajando" ya no es seguro. Queda en
     // reposo hasta su próximo evento real.
     const status = h.exited ? 'exited' : meta.status === 'working' ? 'idle' : meta.status
-    adopt({ ...meta, status }, new RemotePty(h.id), h.buffer, {
+    adopt({ ...meta, status }, new RemotePty(h.id), h.screen ?? h.buffer, {
       cols: h.cols,
       rows: h.rows
     })
@@ -338,12 +338,17 @@ export const sessionInfo = (id: string): SessionInfo | undefined => {
   return s && info(s)
 }
 
-// Lo que ya imprimió la sesión, para pintarla al volver a montarla.
-// Antes de responder sale el lote pendiente: llega al renderer antes que este buffer (IPC respeta
-// el orden), cuando el terminal aún no escucha; así ningún trozo se pinta dos veces.
-export function readBuffer(id: string): string {
+// La foto de lo que se ve en la sesión, para pintarla al volver a montarla.
+// Antes de responder sale el lote pendiente: llega al renderer antes que la foto (IPC respeta el
+// orden), cuando el terminal aún no escucha, y la foto ya lo incluye; así nada se pinta dos veces.
+export async function readBuffer(
+  id: string
+): Promise<{ data: string; cols: number; rows: number } | null> {
+  const s = sessions.get(id)
+  if (!s) return null
+  const shot = await s.screen.snapshot()
   flushData()
-  return sessions.get(id)?.buffer ?? ''
+  return shot
 }
 
 export function handleHook(id: string, ev: { hook_event_name?: string }): void {
@@ -359,14 +364,14 @@ export function resizeSession(id: string, cols: number, rows: number): void {
   const s = sessions.get(id)
   if (!s || s.status === 'exited' || cols <= 0 || rows <= 0) return
   s.pty.resize(cols, rows)
-  s.screen.resize(cols, rows)
+  s.screen.term.resize(cols, rows)
 }
 
 // Las últimas `lines` líneas de lo que se ve en la sesión, en texto plano.
 export function readScreen(id: string, lines: number): string | null {
   const s = sessions.get(id)
   if (!s) return null
-  const buffer = s.screen.buffer.active
+  const buffer = s.screen.term.buffer.active
   // Hasta la línea del cursor: con poca salida, lo de debajo son filas vacías de la pantalla.
   const end = Math.min(buffer.length, buffer.baseY + buffer.cursorY + 1)
   const out: string[] = []
@@ -389,7 +394,7 @@ export function sendText(id: string, text: string, submit: boolean): boolean {
   const s = sessions.get(id)
   if (!s || s.status === 'exited') return false
   const clean = text.replace(CONTROL, '')
-  s.pty.write(s.screen.modes.bracketedPasteMode ? `\x1b[200~${clean}\x1b[201~` : clean)
+  s.pty.write(s.screen.term.modes.bracketedPasteMode ? `\x1b[200~${clean}\x1b[201~` : clean)
   if (submit) {
     setTimeout(() => sessions.has(id) && s.status !== 'exited' && s.pty.write('\r'), 150)
   }
@@ -460,7 +465,7 @@ export function closeSession(id: string): void {
   sessions.delete(id)
   clearTimeout(s.quiet)
   s.waiters.forEach((wake) => wake())
-  s.screen.dispose() // la salida que llegue tarde ya no la escribe: la sesión salió del mapa
+  s.screen.term.dispose() // la salida que llegue tarde ya no la escribe: la sesión salió del mapa
   s.pty.kill() // el host la olvida, viva o terminada
   removeHookSettings(id)
   removePrompt(id)

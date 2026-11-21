@@ -35,7 +35,9 @@ const api = {
     list: (): Promise<SessionInfo[]> => ipcRenderer.invoke('sessions:list'),
     // Cuántas volvieron del host al abrir Slate (solo la primera vez que se pregunta).
     restored: (): Promise<number> => ipcRenderer.invoke('sessions:restored'),
-    buffer: (id: string): Promise<string> => ipcRenderer.invoke('sessions:buffer', id),
+    // Foto de su pantalla, para un terminal de cols × rows (null si ya no existe).
+    buffer: (id: string): Promise<{ data: string; cols: number; rows: number } | null> =>
+      ipcRenderer.invoke('sessions:buffer', id),
     // Las últimas `lines` líneas de texto de cada sesión (para el tablero).
     screens: (ids: string[], lines: number): Promise<Record<string, string>> =>
       ipcRenderer.invoke('sessions:screens', ids, lines),

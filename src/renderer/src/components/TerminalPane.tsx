@@ -209,17 +209,22 @@ export function TerminalPane({
     addEventListener('pointercancel', release)
     addEventListener('blur', release)
 
-    // Primero lo que ya imprimió y después lo nuevo: IPC entrega en orden, así no se duplica nada.
+    // Primero lo que ya se veía y después lo nuevo: IPC entrega en orden, así no se duplica nada.
+    // Es una foto de la pantalla a su tamaño (main/mirror.ts): se pinta a ese tamaño y después el
+    // terminal se ajusta a su hueco, reacomodándose como cualquier otro cambio de tamaño.
     let alive = true
-    // Mientras se reproduce lo ya impreso, xterm volvería a contestar consultas viejas (la de
-    // identificación que manda ConPTY al arrancar): esas respuestas no deben llegar a la shell.
+    // Mientras se pinta la foto, xterm podría contestar consultas que trae: no van a la shell.
     let replaying = false
     let offData = (): void => {}
     document.fonts.ready.then(async () => {
       const past = await sessions.buffer(sessionId)
       if (!alive) return
-      replaying = true
-      term.write(past, () => void (replaying = false))
+      if (past?.data) {
+        replaying = true
+        term.resize(past.cols, past.rows)
+        lastSize = `${past.cols}x${past.rows}`
+        term.write(past.data, () => void (replaying = false))
+      }
       offData = sessions.onData(sessionId, (data) => term.write(data))
       resize()
     })

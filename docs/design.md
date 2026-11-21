@@ -269,8 +269,9 @@ Lo recorrí con Windows-MCP sin enviar mensajes. Solo anoto lo que se ve; no se 
 
 ## 11. Sesiones persistentes (Fase 7)
 - **Host de sesiones**: las terminales viven en un proceso aparte (`src/main/host.ts`), lanzado desacoplado con el mismo binario en modo Node. Slate se conecta a él por una tubería con nombre (un socket en Unix) con un token. Si ya hay un host, se reconecta; si no, lo lanza.
-  - El host solo guarda los procesos y su salida (256 KB por sesión).
-  - Estados, hooks, MCP, git y la pantalla espejo siguen en Slate. La pantalla espejo se reconstruye con la salida guardada.
+  - El host guarda los procesos y una pantalla espejo de cada uno (`src/main/mirror.ts`: xterm sin pantalla, 2000 líneas de historial).
+  - Estados, hooks, MCP y git siguen en Slate, que tiene su propia pantalla espejo.
+  - Al volver, el terminal no recibe la salida cruda sino una foto de la pantalla (`@xterm/addon-serialize`) al tamaño en que se hizo. Primero se pinta a ese tamaño y después se ajusta al hueco. La salida cruda se imprimió a varios anchos: repintada en un xterm recién creado (80 columnas), mezclaba las letras de Claude Code.
 - **Al salir**: con "Mantener las sesiones al salir" (Ajustes › Avisos › Al cerrar la ventana, activado por defecto), los agentes siguen trabajando. Al volver aparecen tal cual, en la misma disposición de paneles, y la barra superior avisa ("Volvieron las N sesiones…"). Sin esa opción, o con "Salir y detener las sesiones" de la bandeja, se cierran y el host se va.
 - **El host se apaga solo** sin Slate conectado: a los 10 s si no le quedan sesiones; si solo le quedan terminadas, las guarda una hora para que Slate muestre cómo acabaron.
 - **Un solo Slate por carpeta de datos**: abrir otro trae al frente el que ya está. Si al abrir aparece un host de otra versión (tras actualizar), Slate pregunta si detenerlo con sus sesiones. En Ajustes › Avisos hay un botón para detener todas las sesiones.

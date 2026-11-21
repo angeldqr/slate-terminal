@@ -28,3 +28,19 @@ las transiciones y los efectos animados, también si Windows los tiene habilitad
 La CI ejecuta `npm run look:exe` antes de publicar. Si falla, adjunta las capturas disponibles. Ese
 recorrido comprueba la aplicación empaquetada; el ciclo de actualización desde una instalación
 anterior sigue siendo una comprobación por separado.
+
+## Segunda pasada: la salida de las sesiones
+
+`npm run perf` ya daba unos 100 cuadros por segundo con 20 sesiones, así que el costo estaba antes
+del dibujo, en el camino de la salida:
+
+| Medida                                 | Antes   | Después |
+| -------------------------------------- | ------- | ------- |
+| Eco de una tecla (p50, ida y vuelta)   | 7,1 ms  | 0,9 ms  |
+| Costo por trozo de salida, host y main | ~100 µs | ~7 µs   |
+
+- El host y main guardaban los últimos 256 KB de salida cruda copiando la cadena entera en cada
+  trozo. Ahora cada uno lleva una pantalla espejo (`src/main/mirror.ts`), que además es lo que se
+  repinta al volver.
+- El lote de salida de main esperaba siempre 6 ms. Ahora el primer trozo tras una pausa sale en el
+  acto y solo se agrupan las ráfagas.

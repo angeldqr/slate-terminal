@@ -237,7 +237,12 @@ export async function spawnRemote(id: string, req: SpawnRequest, meta: Meta): Pr
 }
 
 export async function listRemote(): Promise<HostSession[]> {
-  return (await request<Extract<FromHost, { t: 'list' }>>((rid) => ({ t: 'list', rid }))).sessions
+  const reply = await request<Extract<FromHost, { t: 'list' }>>((rid) => ({
+    t: 'list',
+    rid,
+    screens: true
+  }))
+  return reply.sessions
 }
 
 // Los procesos del host: el suyo y la shell de cada sesión viva (para Ajustes › Avanzado).

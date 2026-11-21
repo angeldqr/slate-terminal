@@ -27,13 +27,16 @@ export type ToHost =
   | { t: 'resize'; id: string; cols: number; rows: number }
   | { t: 'kill'; id: string }
   | { t: 'meta'; id: string; meta: Meta }
-  | { t: 'list'; rid: number }
+  | { t: 'list'; rid: number; screens?: boolean } // screens: con la foto de cada pantalla
   | { t: 'shutdown' }
 
 export type HostSession = {
   id: string
   meta: Meta
-  buffer: string
+  // Foto de su pantalla a cols × rows (mirror.ts). Un host anterior manda la salida cruda en
+  // `buffer`: con ese, la sesión vuelve como antes.
+  screen?: string
+  buffer?: string
   exited: boolean
   cols: number // su tamaño actual: la pantalla espejo de Slate se reconstruye igual
   rows: number
