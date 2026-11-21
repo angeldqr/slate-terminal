@@ -857,22 +857,21 @@ const terminalWidth = () =>
   )
 const stableWidth = await terminalWidth()
 // Las columnas que cree tener la shell (PowerShell las informa con [Console]::WindowWidth).
+// PowerShell las escribe en un archivo: leerlas de la pantalla falla cuando el terminal es tan
+// estrecho que la línea se parte (en la CI la ventana es pequeña).
+let colsRead = 0
 const shellCols = async () => {
-  const marker = `cols${Date.now()}`
+  const file = join(data, `cols-${++colsRead}.txt`)
   await first.evaluate(
-    ({ id, marker }) =>
-      window.slate.sessions.write(id, `Write-Output "${marker}=$([Console]::WindowWidth)"\r`),
-    { id: third.id, marker }
+    ({ id, file }) =>
+      window.slate.sessions.write(
+        id,
+        `[Console]::WindowWidth | Set-Content -LiteralPath '${file.replaceAll("'", "''")}'\r`
+      ),
+    { id: third.id, file }
   )
-  for (let i = 0; i < 40; i++) {
-    const text = await first.evaluate(({ id }) => window.slate.sessions.buffer(id), {
-      id: third.id
-    })
-    const m = new RegExp(`${marker}=(\\d+)`).exec(text)
-    if (m) return Number(m[1])
-    await first.waitForTimeout(100)
-  }
-  return 0
+  for (let i = 0; i < 150 && !existsSync(file); i++) await first.waitForTimeout(100)
+  return existsSync(file) ? Number(readFileSync(file, 'utf8').trim()) : 0
 }
 const openCols = await shellCols()
 const panelClose = panel.getByRole('button', { name: 'Cerrar cambios' })
